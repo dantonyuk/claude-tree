@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code session state
+.claude/
+
+# Local development artifacts
+*.log

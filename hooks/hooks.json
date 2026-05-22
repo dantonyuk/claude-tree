@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-context.sh",
+            "description": "Inject worktree-vs-main session context for the work plugin",
+            "id": "work:session-context"
+          }
+        ]
+      }
+    ]
+  }
+}
