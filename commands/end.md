@@ -6,7 +6,7 @@ allowed-tools: Bash, AskUserQuestion, ExitWorktree
 
 # /work:end
 
-Tear down the current worktree. If there is outstanding work (uncommitted changes, unpushed commits, no PR yet, …), prompt the user with one combined choice before removing. Always release the session from `EnterWorktree` before any `git worktree remove`.
+Tear down the current worktree. If there is outstanding work (uncommitted changes, unpushed commits, no PR yet, …), prompt the user with one combined choice before removing. After that, **always** ask whether to delete the branch too (default `delete -d` when the PR is merged, default `keep` otherwise). Always release the session from `EnterWorktree` before any `git worktree remove`.
 
 ## Steps
 
@@ -74,7 +74,7 @@ wt_require_git || exit 1
 
 5. **Auto-skip the action prompt ONLY when the worktree is clean AND `PR_STATE == MERGED`.** This is the only condition where the user clearly intends a routine teardown of merged work. For any other PR state (OPEN, CLOSED, none) — even with a clean tree — prompt in step 6 so the user can confirm.
 
-   In the auto-skip path, the default branch action in step 7.5 is **`Delete branch (-d)`** since the PR is merged.
+   In the auto-skip path, step 7 is skipped entirely, but **step 8 (branch follow-up) still runs** with `Delete branch (-d)` as the default since the PR is merged.
 
 6. **Otherwise, use AskUserQuestion once** with the question
    "How do you want to end this worktree?". Show only the options whose conditions match the current state.
@@ -109,24 +109,32 @@ wt_require_git || exit 1
      fi
      ```
    - **PR step:** `gh pr create --base "$BASE" --fill`. Refuse with a clear message if `gh` is missing. Capture the resulting URL for the final summary.
-   - **Remove anyway:** record that the user opted into `--force` for step 8c; warn that uncommitted work in `<WT_PATH>` will be discarded.
+   - **Remove anyway:** record that the user opted into `--force` for step 9c; warn that uncommitted work in `<WT_PATH>` will be discarded.
 
-7.5. **Branch follow-up** — AskUserQuestion (single-select):
-   "What should happen to branch `<BRANCH>` after the worktree is removed?"
+8. **Branch follow-up — MANDATORY** unless the user picked "Cancel" in step 6.
+   This step runs both after step 7 (normal path) and after the step-5 auto-skip
+   (merged PR path). Do not skip it — the worktree is being removed and the user
+   needs to decide what happens to the branch.
+
+   Use `AskUserQuestion` (single-select) with the question:
+
+       "What should happen to branch `<BRANCH>` after the worktree is removed?"
 
    Defaults depend on `PR_STATE`:
-   - `PR_STATE == MERGED` → present in order: **"Delete (`git branch -d`) [default]"**, "Keep", "Force-delete (`git branch -D`)"
-   - any other `PR_STATE` (OPEN, CLOSED, none) → present in order: **"Keep [default]"**, "Delete (`git branch -d`)", "Force-delete (`git branch -D`)"
+   - `PR_STATE == MERGED` → present in order:
+     **"Delete (`git branch -d`)" [default]**, "Keep", "Force-delete (`git branch -D`)"
+   - any other `PR_STATE` (OPEN, CLOSED, none) → present in order:
+     **"Keep" [default]**, "Delete (`git branch -d`)", "Force-delete (`git branch -D`)"
 
-   Skip this prompt if the user picked "Cancel" in step 6.
+   Store the user's choice in `BRANCH_ACTION` for step 9d.
 
-8. **Teardown.** Follow this ordering exactly — it is the only sequence that works when the session entered the worktree via `EnterWorktree({ path })`:
+9. **Teardown.** Follow this ordering exactly — it is the only sequence that works when the session entered the worktree via `EnterWorktree({ path })`:
 
    **a. Release the EnterWorktree session.** Always call `ExitWorktree` with `action: "keep"`. It is a documented no-op outside a managed session, so it is safe even if `/work:start` was not used (e.g., the user `cd`'d into the worktree manually, or the session is resumed across compaction without rerunning `/work:start`). **Never use `action: "remove"`** here — `ExitWorktree` refuses to remove path-entered worktrees and we already plan to use `git worktree remove` for cross-session compatibility.
 
    - **Tool call:** `ExitWorktree({ action: "keep" })`
 
-   If the response is "No-op: there is no active EnterWorktree session to exit", treat this as success — the session was unmanaged, no release is needed, proceed to step 8b. Do not surface this as an error to the user.
+   If the response is "No-op: there is no active EnterWorktree session to exit", treat this as success — the session was unmanaged, no release is needed, proceed to step 9b. Do not surface this as an error to the user.
 
    **b. Switch the bash subshell to the main checkout** so subsequent git commands run from there:
    ```bash
@@ -138,12 +146,12 @@ wt_require_git || exit 1
    git worktree remove "$WT_PATH"           # add --force only if user picked "Remove anyway"
    ```
 
-   **d. Branch action** (from step 7.5; skipped if the user cancelled):
+   **d. Branch action** (`BRANCH_ACTION` from step 8; skipped if the user cancelled at step 6):
    - **Keep** → do nothing.
    - **Delete** → `git branch -d "$BRANCH"`. If this fails because the branch has unmerged commits, **do not auto-escalate to `-D`**. Report the error verbatim and tell the user they can re-run `/work:end` and pick "Force-delete" if discarding is intended.
    - **Force-delete** → `git branch -D "$BRANCH"`.
 
-9. **Print confirmation:**
+10. **Print confirmation:**
    ```
    Worktree removed:  <WT_PATH>
    Branch:            <kept | deleted | force-deleted>   (BRANCH was <BRANCH>)
@@ -154,4 +162,4 @@ wt_require_git || exit 1
 
 - If `git worktree remove` fails because the tree is still dirty and the user did NOT opt into "Remove anyway", report the error and stop without forcing.
 - If `git branch -d` refuses because the branch is unmerged, surface git's exact error and the suggested re-run path with force-delete; do not auto-escalate.
-- If any commit/push/PR step fails, stop **before** step 8 so the user can resolve manually without losing the session reference to the worktree.
+- If any commit/push/PR step fails, stop **before** step 9 (teardown) so the user can resolve manually without losing the session reference to the worktree.
