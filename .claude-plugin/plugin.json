@@ -1,6 +1,6 @@
 {
   "name": "work",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Worktree-per-ticket workflow for Claude Code. Create, enter, sync, list, and tear down git worktrees with /work:* commands and automatic main-vs-worktree session context.",
   "author": {
     "name": "Dmitry Antonyuk"
