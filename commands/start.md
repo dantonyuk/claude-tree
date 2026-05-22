@@ -85,11 +85,22 @@ wt_require_git || exit 1
 
 8. **Enter the worktree via the EnterWorktree built-in tool.** This properly switches the session's working directory and clears CWD-dependent caches (plans, memory, system prompt sections) — much cleaner than a bare `cd`.
 
-   First, if the session is already inside an `EnterWorktree`-managed worktree, exit it (keeping it intact). Calling `ExitWorktree` outside a managed session is a documented no-op, so it is always safe to invoke:
+   **Conditionally** release any prior `EnterWorktree` session first. Skip this call when starting from the main checkout — `ExitWorktree`'s "no active session" reply renders as a noisy "Error" in the CC UI even though it's just a documented no-op. We only need the release call when the session is already inside another worktree (i.e., the user is switching from one worktree to another in the same session):
 
+   ```bash
+   # Captured earlier in `wt_in_worktree`-aware logic; recompute if needed.
+   if wt_in_worktree; then
+     CALL_EXIT=yes
+   else
+     CALL_EXIT=no
+   fi
+   ```
+
+   If `CALL_EXIT=yes`:
    - **Tool call:** `ExitWorktree({ action: "keep" })`
+     (If the response says "no active EnterWorktree session", treat as success and proceed — we were in a worktree via bare `cd`, not via `EnterWorktree`. No further action needed.)
 
-   Then enter the target worktree by absolute path:
+   Then enter the target worktree by absolute path **(always)**:
 
    - **Tool call:** `EnterWorktree({ path: "<absolute WT_PATH>" })`
 

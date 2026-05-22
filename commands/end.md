@@ -122,8 +122,11 @@ wt_require_git || exit 1
 
 8. **Teardown.** Follow this ordering exactly — it is the only sequence that works when the session entered the worktree via `EnterWorktree({ path })`:
 
-   **a. Release the EnterWorktree session.** Always call `ExitWorktree` with `action: "keep"`. It is a documented no-op outside a managed session, so it is safe even if `/work:start` was not used. **Never use `action: "remove"`** here — `ExitWorktree` refuses to remove path-entered worktrees and we already plan to use `git worktree remove` for cross-session compatibility.
+   **a. Release the EnterWorktree session.** Always call `ExitWorktree` with `action: "keep"`. It is a documented no-op outside a managed session, so it is safe even if `/work:start` was not used (e.g., the user `cd`'d into the worktree manually, or the session is resumed across compaction without rerunning `/work:start`). **Never use `action: "remove"`** here — `ExitWorktree` refuses to remove path-entered worktrees and we already plan to use `git worktree remove` for cross-session compatibility.
+
    - **Tool call:** `ExitWorktree({ action: "keep" })`
+
+   If the response is "No-op: there is no active EnterWorktree session to exit", treat this as success — the session was unmanaged, no release is needed, proceed to step 8b. Do not surface this as an error to the user.
 
    **b. Switch the bash subshell to the main checkout** so subsequent git commands run from there:
    ```bash
