@@ -1,12 +1,12 @@
 ---
 description: Tear down the current worktree after handling uncommitted/unpushed/missing-PR work
 argument-hint: ""
-allowed-tools: Bash, AskUserQuestion
+allowed-tools: Bash, AskUserQuestion, ExitWorktree
 ---
 
 # /work:end
 
-Tear down the current worktree. If there's uncommitted work, unpushed commits, or no PR, prompt the user with a single combined choice before removing.
+Tear down the current worktree. If there is outstanding work (uncommitted changes, unpushed commits, no PR yet, …), prompt the user with one combined choice before removing. Always release the session from `EnterWorktree` before any `git worktree remove`.
 
 ## Steps
 
@@ -33,48 +33,73 @@ wt_require_git || exit 1
    BASE=$(wt_default_branch)
    ```
 
-3. **Detect issues:**
-   - `wt_dirty` returns 0 if dirty
-   - `wt_unpushed_count` returns a number or "no-upstream"
-   - `wt_pr_for "$BRANCH"` returns JSON if a PR exists, empty otherwise
+3. **Detect issues.** Compute the following deterministically — every later branch in this command keys off these values:
+   ```bash
+   # Dirty flag (use as: `if wt_dirty; then ... fi`)
+   # Unpushed commits relative to upstream (number or "no-upstream"):
+   UNPUSHED=$(wt_unpushed_count)
+   # PR state — one of MERGED, OPEN, CLOSED, or "none". Use gh's --jq so we don't
+   # need a separate JSON parser. wt_pr_for already runs gh once; this second call
+   # is cheap and avoids requiring jq.
+   PR_STATE=none
+   if wt_has_gh; then
+     pr_state_raw=$(gh pr view "$BRANCH" --json state --jq '.state' 2>/dev/null)
+     [[ -n "$pr_state_raw" ]] && PR_STATE="$pr_state_raw"
+   fi
+   PR_URL=
+   if wt_has_gh && [[ "$PR_STATE" != "none" ]]; then
+     PR_URL=$(gh pr view "$BRANCH" --json url --jq '.url' 2>/dev/null)
+   fi
+   # Commits on this branch not yet on origin/$BASE. This is what /work:end cares
+   # about — NOT @{u}, because the upstream is usually the same branch (so
+   # @{u}..HEAD = 0 even when the branch has unique commits vs base).
+   git fetch origin "$BASE" >/dev/null 2>&1 || true
+   AHEAD_BASE=$(git rev-list --count "origin/$BASE..HEAD" 2>/dev/null || echo 0)
+   ```
 
-4. **Show a one-screen summary** to the user (print to stdout):
+4. **Show a one-screen summary** to the user. Render `nothing to PR — branch is at base` when `AHEAD_BASE == 0`:
    ```
    ─────────────────────────────────────────
     Ending worktree
    ─────────────────────────────────────────
-   path:     <WT_PATH>
-   branch:   <BRANCH>
-   base:     <BASE>
-   dirty:    <yes/no>  (N files)
-   unpushed: <N commits | no upstream>
-   PR:       <#N (STATE) URL | none>
+   path:          <WT_PATH>
+   branch:        <BRANCH>
+   base:          <BASE>
+   dirty:         <yes (N files) | no>
+   unpushed:      <N commits | no upstream>
+   ahead of base: <AHEAD_BASE> commits   (or "0 — nothing to PR; branch is at base")
+   PR:            <#N (PR_STATE) URL | none>
    ─────────────────────────────────────────
    ```
 
-5. **If clean AND has PR** → skip prompting; jump to step 8 (teardown).
+5. **Auto-skip the action prompt ONLY when the worktree is clean AND `PR_STATE == MERGED`.** This is the only condition where the user clearly intends a routine teardown of merged work. For any other PR state (OPEN, CLOSED, none) — even with a clean tree — prompt in step 6 so the user can confirm.
+
+   In the auto-skip path, the default branch action in step 7.5 is **`Delete branch (-d)`** since the PR is merged.
 
 6. **Otherwise, use AskUserQuestion once** with the question
-   "How do you want to end this worktree?" and only offer the options that make sense for the current state:
+   "How do you want to end this worktree?". Show only the options whose conditions match the current state.
 
-   | Condition | Option label | Description |
+   | Condition | Option label | Notes |
    |---|---|---|
-   | dirty, no PR | "Commit + push + open PR, then remove" | Stage all, draft commit message from diff, push with -u, `gh pr create --fill` |
-   | dirty, has PR | "Commit + push, then remove" | Stage all, commit, push |
-   | clean, unpushed, no PR | "Push + open PR, then remove" | Push and `gh pr create --fill` |
-   | clean, unpushed, has PR | "Push, then remove" | Just push |
-   | clean, no unpushed, no PR | "Open PR, then remove" | `gh pr create --fill` only |
-   | always | "Remove anyway (keep branch; force if needed)" | `git worktree remove --force` after confirming uncommitted work will be discarded |
-   | always | "Cancel" | Abort, no changes |
+   | dirty, no PR, **AHEAD_BASE + dirty > 0** | "Commit + push + open PR, then remove" | Stage, commit, push -u, `gh pr create --fill` |
+   | dirty, has PR | "Commit + push, then remove" | Stage, commit, push |
+   | clean, unpushed > 0, no PR, **AHEAD_BASE > 0** | "Push + open PR, then remove" | Push and `gh pr create --fill` |
+   | clean, unpushed > 0, has PR | "Push, then remove" | Just push |
+   | clean, unpushed == 0, no PR, **AHEAD_BASE > 0** | "Open PR, then remove" | `gh pr create --fill` only |
+   | always | "Remove anyway (keep branch; force if needed)" | Teardown only; uncommitted work discarded only if user confirms |
+   | always | "Cancel" | Abort |
 
-   Use grouped options — present only the rows whose condition matches.
+   **Hard rules**:
+   - Never offer any "Open PR" variant when `AHEAD_BASE == 0` — `gh pr create --fill` would fail because there is nothing to PR.
+   - If `AHEAD_BASE == 0` AND clean AND no PR, the only meaningful non-cancel option is "Remove anyway". Make that explicit in the summary: "branch has no commits ahead of base — nothing to PR; only removal is meaningful."
 
 7. **Execute the chosen action:**
-   - **Commit step:** show the user `git diff --stat` and a 5-line preview of `git diff | head -50`. Draft a commit message from the diff (use the recent commit style — `git log --oneline -5` for tone). Then:
+   - **Commit step:** show the user `git diff --stat` and `git diff | head -50`. Draft a commit message from the diff, calibrating tone to `git log --oneline -5`. Then:
      ```bash
      git add -A
      git commit -m "<drafted message>"
      ```
+     After committing, re-compute `AHEAD_BASE` (it will have grown).
    - **Push step:** set upstream if missing:
      ```bash
      if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
@@ -83,23 +108,47 @@ wt_require_git || exit 1
        git push -u origin "$BRANCH"
      fi
      ```
-   - **PR step:** `gh pr create --base "$BASE" --fill` — `--fill` uses commit messages for title/body. Refuse with a clear message if `gh` is missing.
-   - **Remove anyway:** warn the user that uncommitted work in `<WT_PATH>` will be discarded. Use `git worktree remove --force "$WT_PATH"` in step 8.
+   - **PR step:** `gh pr create --base "$BASE" --fill`. Refuse with a clear message if `gh` is missing. Capture the resulting URL for the final summary.
+   - **Remove anyway:** record that the user opted into `--force` for step 8c; warn that uncommitted work in `<WT_PATH>` will be discarded.
 
-8. **Teardown** — cd back to main, then remove:
+7.5. **Branch follow-up** — AskUserQuestion (single-select):
+   "What should happen to branch `<BRANCH>` after the worktree is removed?"
+
+   Defaults depend on `PR_STATE`:
+   - `PR_STATE == MERGED` → present in order: **"Delete (`git branch -d`) [default]"**, "Keep", "Force-delete (`git branch -D`)"
+   - any other `PR_STATE` (OPEN, CLOSED, none) → present in order: **"Keep [default]"**, "Delete (`git branch -d`)", "Force-delete (`git branch -D`)"
+
+   Skip this prompt if the user picked "Cancel" in step 6.
+
+8. **Teardown.** Follow this ordering exactly — it is the only sequence that works when the session entered the worktree via `EnterWorktree({ path })`:
+
+   **a. Release the EnterWorktree session.** Always call `ExitWorktree` with `action: "keep"`. It is a documented no-op outside a managed session, so it is safe even if `/work:start` was not used. **Never use `action: "remove"`** here — `ExitWorktree` refuses to remove path-entered worktrees and we already plan to use `git worktree remove` for cross-session compatibility.
+   - **Tool call:** `ExitWorktree({ action: "keep" })`
+
+   **b. Switch the bash subshell to the main checkout** so subsequent git commands run from there:
    ```bash
    cd "$MAIN"
-   git worktree remove "$WT_PATH"   # add --force only if the user picked "Remove anyway"
    ```
+
+   **c. Remove the worktree:**
+   ```bash
+   git worktree remove "$WT_PATH"           # add --force only if user picked "Remove anyway"
+   ```
+
+   **d. Branch action** (from step 7.5; skipped if the user cancelled):
+   - **Keep** → do nothing.
+   - **Delete** → `git branch -d "$BRANCH"`. If this fails because the branch has unmerged commits, **do not auto-escalate to `-D`**. Report the error verbatim and tell the user they can re-run `/work:end` and pick "Force-delete" if discarding is intended.
+   - **Force-delete** → `git branch -D "$BRANCH"`.
 
 9. **Print confirmation:**
    ```
    Worktree removed:  <WT_PATH>
-   Branch kept:       <BRANCH>  (still tracked locally)
+   Branch:            <kept | deleted | force-deleted>   (BRANCH was <BRANCH>)
    PR:                <#N URL | none>
    ```
 
 ## Failure handling
 
 - If `git worktree remove` fails because the tree is still dirty and the user did NOT opt into "Remove anyway", report the error and stop without forcing.
-- If any commit/push/PR step fails, stop before teardown so the user can resolve manually.
+- If `git branch -d` refuses because the branch is unmerged, surface git's exact error and the suggested re-run path with force-delete; do not auto-escalate.
+- If any commit/push/PR step fails, stop **before** step 8 so the user can resolve manually without losing the session reference to the worktree.
