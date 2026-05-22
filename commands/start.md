@@ -80,10 +80,10 @@ wt_require_git || exit 1
    **Tool call:** `AskUserQuestion({ questions: [{ question: "Which worktree do you want to enter?", header: "Worktree", multiSelect: false, options: [ ...up to 3 worktree options..., { label: "Cancel", description: "Don't enter any worktree" } ] }] })`
 
    **Handle the response:**
-   - **Worktree label selected** → set `NAME` to that branch and `WT_PATH` to the corresponding path from the candidate list; jump directly to **step 8** (skip steps 2, 3, 4, 5, 6, 7 — worktree exists, nothing to validate, fetch, create, or copy).
+   - **Worktree label selected** → set `NAME` to that branch and `WT_PATH` to the corresponding path from the candidate list. Skip steps 2-7 (worktree exists, nothing to validate, fetch, create, or copy), but **run step 8 and then step 9** — step 9 prints the summary and the rename suggestion, which apply equally to "entered existing" as to "newly created."
    - **Cancel** → stop silently.
    - **Other** (user typed free text) → treat the text as a branch argument:
-     - If it matches a branch in the candidate list, jump to step 8 like a normal selection.
+     - If it matches a branch in the candidate list, jump to step 8 (then step 9) like a normal selection.
      - Otherwise fall through and execute `/work:start <text>` end-to-end starting from step 2 (validate, possibly create). This means the picker doubles as an entry point for creating new worktrees too.
 
 2. **Validate the branch name** before any mutation:
@@ -112,7 +112,7 @@ wt_require_git || exit 1
      echo "Worktree already exists at $WT_PATH; entering it."
    fi
    ```
-   If `EXISTING=yes`, **skip step 6 and step 7** (no creation, no file copy) and proceed to step 8.
+   If `EXISTING=yes`, **skip step 6 and step 7** (no creation, no file copy), then **continue with step 8 and step 9** — step 9 (the summary + rename suggestion) always runs regardless of whether the worktree was created or pre-existing.
 
 6. **Create the worktree** based on existing branch state. Run `wt_branch_state "$NAME"` and act on the result:
    - `none` → brand-new branch off the base:
@@ -169,7 +169,9 @@ wt_require_git || exit 1
 
    `EnterWorktree`'s `path` parameter accepts any worktree registered in `git worktree list`, so it works identically for newly-created and pre-existing worktrees.
 
-9. **Print a summary** to the user. Include a rename suggestion unless the env var `CLAUDE_TREE_NO_RENAME=1` is set (check via `[[ "${CLAUDE_TREE_NO_RENAME:-}" == "1" ]]` in a quick Bash call before composing the message):
+9. **Print a summary — MANDATORY.** This step **always runs**, regardless of which path led here (newly created worktree, pre-existing worktree entered by name, or worktree picked from the no-arg picker). The rename suggestion in this summary is the only way `/work:start` cues the user to align the session name with the branch — skipping it leaves the session named after the previous context, which is exactly what the user reported as a bug.
+
+   Include the rename block unless the env var `CLAUDE_TREE_NO_RENAME=1` is set (check via `[[ "${CLAUDE_TREE_NO_RENAME:-}" == "1" ]]` in a quick Bash call before composing the message):
    ```
    ─────────────────────────────────────────
     Worktree ready
