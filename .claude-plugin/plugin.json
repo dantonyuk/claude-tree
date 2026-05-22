@@ -6,6 +6,5 @@
     "name": "Dmitry Antonyuk"
   },
   "license": "MIT",
-  "commands": ["./commands/"],
-  "hooks": ["./hooks/hooks.json"]
+  "commands": ["./commands/"]
 }
