@@ -1,12 +1,14 @@
 ---
-description: Create or enter a git worktree for the given branch
-argument-hint: <branch-name> [base-branch]
+description: Create or enter a git worktree (or, with no args, pick from existing ones)
+argument-hint: "[branch-name] [base-branch]"
 allowed-tools: Bash, AskUserQuestion, Read, EnterWorktree, ExitWorktree
 ---
 
-# /work:start &lt;branch&gt; [base]
+# /work:start [branch] [base]
 
 Create a worktree at `<main-tree>/.worktrees/<branch>` for the named branch, or enter it if it already exists. Default base = repo's default branch (auto-detected from `origin/HEAD`).
+
+**No-argument mode**: `/work:start` with no arguments shows an interactive picker of existing worktrees (or a usage hint if none exist). Picking one enters it directly without re-creating.
 
 ## Steps
 
@@ -17,11 +19,41 @@ Always source the helper library first:
 wt_require_git || exit 1
 ```
 
-1. **Parse arguments.** `$1` is the branch name (required); `$2` is the base branch (optional). If `$1` is missing, print:
+1. **Parse arguments.** `$1` is the branch name (optional); `$2` is the base branch (optional).
+
+   **If `$1` is provided**, set `NAME="$1"` and proceed to step 2 normally.
+
+   **If `$1` is missing → picker mode.** Enumerate existing worktrees (excluding the main checkout) and let the user pick one:
+
+   ```bash
+   MAIN=$(wt_main_dir)
+   # Lines of "<path>\t<branch>" for each non-main worktree.
+   git -C "$MAIN" worktree list --porcelain | awk '
+     /^worktree / { p = $2; next }
+     /^branch refs\/heads\// { sub("refs/heads/", "", $2); if (p != "'"$MAIN"'") print p "\t" $2 }
+   '
    ```
-   usage: /work:start <branch> [base]
-   ```
-   and stop.
+
+   - **If the enumeration is empty**, print the usage hint and stop — do NOT proceed to step 2:
+     ```
+     No existing worktrees found.
+
+     usage:
+       /work:start                          # pick from existing worktrees
+       /work:start <branch>                 # create or enter <branch>
+       /work:start <branch> <base>          # create from a specific base branch
+     ```
+
+   - **If at least one worktree exists**, build option labels and present an `AskUserQuestion` picker:
+     - For each worktree, compute via a `git -C <path>` subshell:
+       - dirty? `[[ -n "$(git -C <path> status --porcelain)" ]]`
+       - ahead/behind upstream: `git -C <path> rev-list --left-right --count '@{u}...HEAD' 2>/dev/null`, or "no upstream"
+       - last commit: `git -C <path> log -1 --format=%cr`
+     - **Tool call:** `AskUserQuestion({ questions: [{ question: "Which worktree do you want to enter?", header: "Worktree", multiSelect: false, options: [ { label: "<branch>", description: "<dirty marker>, <ahead>/<behind>, last commit <when>" }, ..., { label: "Cancel", description: "Don't enter any worktree" } ] }] })`
+     - On "Cancel" → stop, print nothing.
+     - On any worktree selection → set `NAME` to the picked branch and jump directly to **step 8** (enter via `EnterWorktree`). Skip steps 2, 3 (path computation can be inlined), 4, 5, 6, 7 — the worktree exists, there's nothing to fetch, validate, create, or copy.
+
+       For step 8 you still need `WT_PATH`; compute it from the picker's selected worktree path directly (the picker had it available).
 
 2. **Validate the branch name** before any mutation:
    ```bash

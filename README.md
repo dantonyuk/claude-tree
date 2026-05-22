@@ -42,12 +42,14 @@ To pick up local changes after editing the plugin:
 
 ## Commands
 
-### `/work:start <branch> [base]`
+### `/work:start [branch] [base]`
 
 Create a worktree at `<main>/.worktrees/<branch>` for the named branch, or enter it if it already exists.
 
 - `<branch>` — used as-is for the branch name. Examples: `CORE-1234`, `feature/oauth`, `fix-typo`.
 - `<base>` — optional. Defaults to the repo's default branch (detected from `origin/HEAD`). Fetched from the remote before the worktree is created.
+
+**No-argument mode:** running `/work:start` with no arguments opens an interactive picker of existing worktrees so you can switch between them quickly. If there are no worktrees yet, it prints a usage hint instead.
 
 If the branch already exists (locally, remotely, or both), it's checked out and you get a notice. Gitignored root files (`.env`, `.env.local`, `.npmrc`, etc.) are copied from the main checkout into the new worktree — directories like `node_modules/` are skipped.
 
