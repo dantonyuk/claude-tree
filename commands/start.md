@@ -23,18 +23,37 @@ wt_require_git || exit 1
 
    **If `$1` is provided**, set `NAME="$1"` and proceed to step 2 normally.
 
-   **If `$1` is missing → picker mode.** Enumerate existing worktrees (excluding the main checkout) and let the user pick one:
+   **If `$1` is missing → picker mode.** Enumerate existing worktrees and present a picker.
+
+   **Build the candidate list:**
 
    ```bash
    MAIN=$(wt_main_dir)
-   # Lines of "<path>\t<branch>" for each non-main worktree.
+   CURRENT_WT=
+   if wt_in_worktree; then
+     CURRENT_WT=$(git rev-parse --show-toplevel)
+   fi
+
+   # Lines of "<unix_ts>\t<path>\t<branch>" for every non-main, non-current worktree,
+   # sorted by last-commit time descending (most recent first).
    git -C "$MAIN" worktree list --porcelain | awk '
      /^worktree / { p = $2; next }
-     /^branch refs\/heads\// { sub("refs/heads/", "", $2); if (p != "'"$MAIN"'") print p "\t" $2 }
-   '
+     /^branch refs\/heads\// { sub("refs/heads/", "", $2); print p "\t" $2 }
+   ' | while IFS=$'\t' read -r p b; do
+     [[ "$p" == "$MAIN" ]] && continue
+     [[ -n "$CURRENT_WT" && "$p" == "$CURRENT_WT" ]] && continue
+     ts=$(git -C "$p" log -1 --format=%ct 2>/dev/null || echo 0)
+     printf '%s\t%s\t%s\n' "$ts" "$p" "$b"
+   done | sort -rn
    ```
 
-   - **If the enumeration is empty**, print the usage hint and stop — do NOT proceed to step 2:
+   **No candidates after exclusions:**
+   - If the user is already in a worktree and no others exist, print:
+     ```
+     No other worktrees to switch to. Use /work:start <branch> to create a new one.
+     ```
+     and stop.
+   - If no worktrees exist at all (running from main checkout, none under `.worktrees/`), print the 3-line usage hint and stop:
      ```
      No existing worktrees found.
 
@@ -44,16 +63,28 @@ wt_require_git || exit 1
        /work:start <branch> <base>          # create from a specific base branch
      ```
 
-   - **If at least one worktree exists**, build option labels and present an `AskUserQuestion` picker:
-     - For each worktree, compute via a `git -C <path>` subshell:
-       - dirty? `[[ -n "$(git -C <path> status --porcelain)" ]]`
-       - ahead/behind upstream: `git -C <path> rev-list --left-right --count '@{u}...HEAD' 2>/dev/null`, or "no upstream"
-       - last commit: `git -C <path> log -1 --format=%cr`
-     - **Tool call:** `AskUserQuestion({ questions: [{ question: "Which worktree do you want to enter?", header: "Worktree", multiSelect: false, options: [ { label: "<branch>", description: "<dirty marker>, <ahead>/<behind>, last commit <when>" }, ..., { label: "Cancel", description: "Don't enter any worktree" } ] }] })`
-     - On "Cancel" → stop, print nothing.
-     - On any worktree selection → set `NAME` to the picked branch and jump directly to **step 8** (enter via `EnterWorktree`). Skip steps 2, 3 (path computation can be inlined), 4, 5, 6, 7 — the worktree exists, there's nothing to fetch, validate, create, or copy.
+   **At least one candidate — prepare the picker.**
 
-       For step 8 you still need `WT_PATH`; compute it from the picker's selected worktree path directly (the picker had it available).
+   Claude Code's `AskUserQuestion` is capped at **4 options total** (the UI auto-adds an "Other" / "Type something else" entry afterward). With "Cancel" occupying one slot, that leaves **3 worktree slots**.
+
+   - If `N ≤ 3` candidates → all fit alongside Cancel; show the picker directly.
+   - If `N > 3` → **first** print a numbered list of every candidate to stdout (so the user can see all of them, not just the top 3). Format each row as:
+     ```
+     <#>. <branch>   <clean|dirty>, <ahead>/<behind>, last commit <when>   (<path>)
+     ```
+     **Then** show the picker containing only the 3 most recent + Cancel. The auto-added "Other" lets the user type any branch name not in the top 3.
+
+   For each option in the picker, the description should be short:
+   `"<clean|dirty>, <ahead>/<behind>, last commit <when>"`
+
+   **Tool call:** `AskUserQuestion({ questions: [{ question: "Which worktree do you want to enter?", header: "Worktree", multiSelect: false, options: [ ...up to 3 worktree options..., { label: "Cancel", description: "Don't enter any worktree" } ] }] })`
+
+   **Handle the response:**
+   - **Worktree label selected** → set `NAME` to that branch and `WT_PATH` to the corresponding path from the candidate list; jump directly to **step 8** (skip steps 2, 3, 4, 5, 6, 7 — worktree exists, nothing to validate, fetch, create, or copy).
+   - **Cancel** → stop silently.
+   - **Other** (user typed free text) → treat the text as a branch argument:
+     - If it matches a branch in the candidate list, jump to step 8 like a normal selection.
+     - Otherwise fall through and execute `/work:start <text>` end-to-end starting from step 2 (validate, possibly create). This means the picker doubles as an entry point for creating new worktrees too.
 
 2. **Validate the branch name** before any mutation:
    ```bash
