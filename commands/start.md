@@ -78,23 +78,41 @@ All git/file work happens inside `scripts/start.sh`. This command is thin orches
 
 6. **Tool call:** `EnterWorktree({ path: "<WT_PATH>" })`. This switches the session's CWD properly (clears CWD-dependent caches).
 
-7. **Print the "Worktree ready" banner — MANDATORY, NON-NEGOTIABLE, applies to BOTH branches (picker + with-args), BOTH new + existing worktrees.** Make this bash call with no arguments:
+7. **Read the worktree facts — MANDATORY.** Make this bash call with no arguments:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" post-enter
    ```
 
-   `post-enter` is self-contained: it infers the branch, base, and path from the worktree it's now running inside (because EnterWorktree changed the CWD), prints the user-facing banner to stderr, and emits a single structured `BRANCH=<branch>` line on stdout.
+   `post-enter` is self-contained: it infers everything from the worktree it's now running inside (because EnterWorktree changed the CWD). It emits ONLY structured stdout — three lines:
+   - `BRANCH=<branch>`
+   - `BASE=<base>`
+   - `WT_PATH=<absolute path>`
 
-8. **Offer the rename as a clickable / prefillable slash-command suggestion — MANDATORY.**
+   No banner, no stderr noise. The banner is your job in step 8.
 
-   Read `BRANCH=<branch>` from step 7's stdout. Then end your assistant reply with the slash command wrapped in single inline backticks, on its own line:
+8. **Compose the "Worktree ready" banner — MANDATORY, NON-NEGOTIABLE, applies to BOTH branches (picker + with-args), BOTH new + existing worktrees.**
 
-       `/rename <branch>`
+   Type the following block as **plain text in your assistant reply** — no triple-backtick fence around it, no inline backticks anywhere inside it, no markdown formatting. Substitute the values from step 7's stdout. The final line `  /rename <branch>` is the entire reason this step exists: it lands in Claude Code's terminal CLI as a slash-command autocomplete suggestion in the user's input field, so a single Enter renames the session. The line MUST be indented exactly **2 spaces** (not 0, not 4 — 4 would turn it into a markdown code block and break the autocomplete pickup).
 
-   Substitute `<branch>` with the actual value. No other text follows on that line; no triple-backtick code fence around it; no indented code block. The inline-backtick form is what Claude Code's UI uses to render the token as a clickable / prefillable command — naked text and fenced code blocks render as plain text instead.
+   Exact template — copy it verbatim and substitute the four placeholders:
 
-   Your assistant reply ends with that one inline-code line. The `post-enter` banner (stderr from step 7) is the only narrative output — do not add additional prose.
+   ─────────────────────────────────────────
+    Worktree ready
+   ─────────────────────────────────────────
+   branch:  &lt;BRANCH&gt;
+   base:    &lt;BASE&gt;
+   path:    &lt;WT_PATH&gt;
+
+   Session is now switched to the worktree.
+
+   To rename this session to match the branch, type:
+     /rename &lt;BRANCH&gt;
+
+   Next: /work:status, /work:sync, /work:end
+   ─────────────────────────────────────────
+
+   That is the entire assistant reply. No prose before it, no prose after it. Just the banner. The two-space-indented `/rename <BRANCH>` line is what shows up as the input-box autocomplete suggestion.
 
 ## Failure handling
 

@@ -169,13 +169,12 @@ cmd_post_enter() {
   # Run AFTER EnterWorktree has switched the session into the worktree.
   # Self-contained: infers branch, base, and path from current git state.
   #
-  # Output contract:
-  #   stdout, single line: BRANCH=<branch>
-  #     The markdown reads this and the LLM types "/rename <branch>" verbatim
-  #     in its own assistant reply — that's what triggers Claude Code's
-  #     input-field suggestion. Slash commands printed from a tool result
-  #     are static text, not suggestions.
-  #   stderr: the user-facing "Worktree ready" banner (branch / base / path).
+  # Output contract: structured KEY=value pairs on stdout only — no banner
+  # text from the script. The user-facing "Worktree ready" banner is composed
+  # by the LLM in its own assistant reply (per commands/start.md step 8), so
+  # the trailing "/rename <branch>" line appears in the assistant's typed
+  # message rather than inside a tool-result block — that's the format
+  # Claude Code's terminal CLI scans for slash-command autocomplete.
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: /work:start post-enter must run inside a git worktree" >&2
     exit 1
@@ -191,20 +190,8 @@ cmd_post_enter() {
   fi
 
   printf 'BRANCH=%s\n' "$branch"
-
-  {
-    echo "─────────────────────────────────────────"
-    echo " Worktree ready"
-    echo "─────────────────────────────────────────"
-    printf 'branch:        %s\n' "$branch"
-    printf 'base:          %s\n' "$base"
-    printf 'path:          %s\n' "$wt_path"
-    echo ""
-    echo "Session is now switched to the worktree."
-    echo ""
-    echo "Next: /work:status, /work:sync, /work:end"
-    echo "─────────────────────────────────────────"
-  } >&2
+  printf 'BASE=%s\n'   "$base"
+  printf 'WT_PATH=%s\n' "$wt_path"
 }
 
 case "${1:-}" in
