@@ -65,7 +65,7 @@ Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `CURRENT`, `EXIS
 
    Emits `BRANCH`, `BASE`, `WT_PATH` on stdout. No banner, no stderr.
 
-4. **Compose the "Worktree ready" banner.** Required for both branches and both new + existing worktrees. Type as plain text — no triple-backtick fence, no inline backticks, no markdown formatting. The 2-space indent on the `/rename` line is load-bearing (4 spaces would render as a code block and break Claude Code's autocomplete pickup). Substitute `<BRANCH>`, `<BASE>`, `<WT_PATH>`:
+4. **Compose the "Worktree ready" banner.** Required for both branches and both new + existing worktrees. Type as plain text — no triple-backtick fence, no inline backticks, no markdown formatting. Substitute `<BRANCH>`, `<BASE>`, `<WT_PATH>`:
 
    ─────────────────────────────────────────
     Worktree ready
@@ -76,10 +76,7 @@ Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `CURRENT`, `EXIS
 
    Session is now switched to the worktree.
 
-   To rename this session to match the branch, type:
-     /rename <BRANCH>
-
-   Next: /work:status, /work:sync, /work:end
+   Next: /rename <BRANCH>, /work:status, /work:sync, /work:end
    ─────────────────────────────────────────
 
    That is the entire assistant reply. No prose before or after.
