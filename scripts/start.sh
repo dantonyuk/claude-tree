@@ -42,11 +42,16 @@ cmd_candidates() {
     CURRENT_WT=$(git rev-parse --show-toplevel)
   fi
 
-  # Header line for the markdown to detect session state without an extra bash call.
+  # Header lines for the markdown to detect session state without extra bash calls.
   if [[ -n "$CURRENT_WT" ]]; then
     echo "IN_WORKTREE=yes"
   else
     echo "IN_WORKTREE=no"
+  fi
+  if wt_session_active; then
+    echo "ACTIVE_SESSION=yes"
+  else
+    echo "ACTIVE_SESSION=no"
   fi
 
   # Body: <ts>\t<path>\t<branch>\t<dirty>\t<ahead>/<behind>\t<last_commit>
@@ -97,6 +102,11 @@ cmd_prepare() {
     CURRENT=yes
   fi
 
+  # Does a prior EnterWorktree session need releasing first? See lib.sh
+  # wt_session_* — marker is written by post-enter, cleared by end.sh teardown.
+  local ACTIVE_SESSION=no
+  wt_session_active && ACTIVE_SESSION=yes
+
   # Emit core paths early so the caller can use them on partial failure.
   printf 'NAME=%s\n' "$name"
   printf 'BASE=%s\n' "$BASE"
@@ -104,6 +114,7 @@ cmd_prepare() {
   printf 'WT_PATH=%s\n' "$WT_PATH"
   printf 'IN_WORKTREE=%s\n' "$IN_WT"
   printf 'CURRENT=%s\n' "$CURRENT"
+  printf 'ACTIVE_SESSION=%s\n' "$ACTIVE_SESSION"
 
   # Fetch base (warn-only on failure; offline is OK).
   if ! git -C "$MAIN" fetch origin "$BASE" 2>/dev/null; then
@@ -176,6 +187,12 @@ cmd_post_enter() {
   # the trailing "/rename <branch>" line appears in the assistant's typed
   # message rather than inside a tool-result block — that's the format
   # Claude Code's terminal CLI scans for slash-command autocomplete.
+
+  # Mark the session as having an active EnterWorktree session. Drives the
+  # ExitWorktree decision in the next /work:start. Done first so a later
+  # failure doesn't leave the marker out of sync with CC's internal state.
+  wt_session_mark
+
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: /work:start post-enter must run inside a git worktree" >&2
     exit 1

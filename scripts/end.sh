@@ -152,6 +152,11 @@ cmd_teardown() {
     exit 2
   fi
 
+  # Release the session marker. By contract the LLM has already called
+  # ExitWorktree (commands/end.md step 6), so CC's internal session state
+  # is already cleared — we just sync the marker.
+  wt_session_unmark
+
   cd "$main" || { echo "ERROR: cannot cd to main: $main" >&2; exit 1; }
 
   if (( force )); then

@@ -91,3 +91,53 @@ wt_ahead_behind() {
   counts=$(git rev-list --left-right --count '@{u}...HEAD' 2>/dev/null) || { echo "0 0"; return 0; }
   echo "$counts"
 }
+
+# Per-CC-session marker indicating whether an EnterWorktree session is
+# currently active. Lets /work:start's markdown call ExitWorktree only when
+# there is something to release — avoiding both the "Error: No-op: no active
+# session" UI line (when nothing is active) and the "Error: Already in a
+# worktree session" UI line (when something is, and we skipped the release).
+#
+# Marker lifecycle:
+#   - written by start.sh post-enter (after EnterWorktree has succeeded)
+#   - cleared by end.sh teardown (after the LLM has called ExitWorktree)
+
+wt_session_id() {
+  # Stable identifier for the current Claude Code session. Walks up the
+  # process tree from this script and returns the PID of the closest
+  # 'claude' ancestor. Falls back to the parent of $PPID (the shell spawned
+  # by CC's Bash tool — its parent is the CC process in the standard model).
+  local pid=$PPID
+  local hops=0
+  while [[ "$pid" -gt 1 && "$hops" -lt 30 ]]; do
+    local pname
+    pname=$(ps -o comm= -p "$pid" 2>/dev/null | awk '{print $NF}')
+    pname=${pname##*/}
+    if [[ "$pname" == "claude" ]]; then
+      echo "$pid"
+      return 0
+    fi
+    local parent
+    parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [[ -z "$parent" || "$parent" == "0" ]] && break
+    pid="$parent"
+    hops=$((hops + 1))
+  done
+  ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' '
+}
+
+wt_session_marker() {
+  printf '%s/claude-work-session-%s.active\n' "${TMPDIR:-/tmp}" "$(wt_session_id)"
+}
+
+wt_session_active() {
+  [[ -f "$(wt_session_marker)" ]]
+}
+
+wt_session_mark() {
+  : > "$(wt_session_marker)" 2>/dev/null || true
+}
+
+wt_session_unmark() {
+  rm -f "$(wt_session_marker)" 2>/dev/null || true
+}
