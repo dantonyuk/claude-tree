@@ -4,7 +4,13 @@
 # Subcommands:
 #   candidates                       enumerate switchable worktrees (no-arg picker)
 #   prepare <name> [base]            validate, fetch, create-or-detect, copy env files
+#   post-enter                       print the user-facing "Worktree ready" + /rename
+#                                    banner from inside the worktree (run AFTER
+#                                    EnterWorktree; takes no args, infers everything
+#                                    from current git state)
 #   summary <name> <base> <wt_path> <existing> <files_copied>
+#                                    (legacy; kept for backwards compat — prefer
+#                                    post-enter)
 #
 # Convention:
 #   - structured "KEY=value" output goes to stdout (LLM parses)
@@ -22,6 +28,7 @@ usage() {
 usage:
   $(basename "$0") candidates
   $(basename "$0") prepare <name> [base]
+  $(basename "$0") post-enter
   $(basename "$0") summary <name> <base> <wt_path> <existing> <files_copied>
 EOF
   exit 2
@@ -159,28 +166,29 @@ cmd_prepare() {
   printf 'STATUS=ok\n'
 }
 
-cmd_summary() {
-  local name="${1:-?}" base="${2:-?}" wt_path="${3:-?}" existing="${4:-no}" files_copied="${5:-0}"
+_print_ready_banner() {
+  # Args: <branch> <base> <wt_path> [files_copied_note]
+  # files_copied_note is rendered as the "files copied:" value; pass empty to
+  # omit the line entirely.
+  local branch="${1:-?}" base="${2:-?}" wt_path="${3:-?}" files_note="${4:-}"
   local no_rename="${CLAUDE_TREE_NO_RENAME:-}"
 
   echo "─────────────────────────────────────────"
   echo " Worktree ready"
   echo "─────────────────────────────────────────"
-  printf 'branch:        %s\n' "$name"
+  printf 'branch:        %s\n' "$branch"
   printf 'base:          %s\n' "$base"
   printf 'path:          %s\n' "$wt_path"
-  if [[ "$existing" == "yes" ]]; then
-    echo "files copied:  (skipped — entering existing)"
-  else
-    printf 'files copied:  %s\n' "$files_copied"
+  if [[ -n "$files_note" ]]; then
+    printf 'files copied:  %s\n' "$files_note"
   fi
   echo ""
-  echo "Session is now switched to the worktree (EnterWorktree)."
+  echo "Session is now switched to the worktree."
 
   if [[ "$no_rename" != "1" ]]; then
     echo ""
     echo "To rename this session to match the branch, type:"
-    printf '  /rename %s\n' "$name"
+    printf '  /rename %s\n' "$branch"
     echo "(Set CLAUDE_TREE_NO_RENAME=1 in your shell to suppress this hint.)"
   fi
 
@@ -189,10 +197,44 @@ cmd_summary() {
   echo "─────────────────────────────────────────"
 }
 
+cmd_post_enter() {
+  # Run AFTER EnterWorktree has switched the session into the worktree.
+  # Self-contained: infers branch, base, and path from current git state, so
+  # the markdown only has to make one zero-arg call.
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "ERROR: /work:start post-enter must run inside a git worktree" >&2
+    exit 1
+  fi
+  local wt_path branch base
+  wt_path=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  branch=$(git -C "$wt_path" symbolic-ref --short HEAD 2>/dev/null || echo "?")
+  # Prefer the branch's configured upstream merge ref; fall back to the repo
+  # default branch (works for --no-track new branches that have no upstream yet).
+  base=$(git -C "$wt_path" config "branch.$branch.merge" 2>/dev/null | sed 's|^refs/heads/||')
+  if [[ -z "$base" ]]; then
+    base=$(cd "$wt_path" && wt_default_branch)
+  fi
+  _print_ready_banner "$branch" "$base" "$wt_path" ""
+}
+
+cmd_summary() {
+  # Legacy entry: keeps backwards compatibility with the previous markdown
+  # contract. Prefer post-enter for new callers.
+  local name="${1:-?}" base="${2:-?}" wt_path="${3:-?}" existing="${4:-no}" files_copied="${5:-0}"
+  local files_note
+  if [[ "$existing" == "yes" ]]; then
+    files_note="(skipped — entering existing)"
+  else
+    files_note="$files_copied"
+  fi
+  _print_ready_banner "$name" "$base" "$wt_path" "$files_note"
+}
+
 case "${1:-}" in
-  candidates) shift; cmd_candidates "$@" ;;
-  prepare)    shift; cmd_prepare "$@" ;;
-  summary)    shift; cmd_summary "$@" ;;
+  candidates)  shift; cmd_candidates "$@" ;;
+  prepare)     shift; cmd_prepare "$@" ;;
+  post-enter)  shift; cmd_post_enter "$@" ;;
+  summary)     shift; cmd_summary "$@" ;;
   ""|-h|--help) usage ;;
-  *)          echo "unknown subcommand: $1" >&2; usage ;;
+  *)           echo "unknown subcommand: $1" >&2; usage ;;
 esac

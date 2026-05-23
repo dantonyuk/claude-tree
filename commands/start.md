@@ -10,7 +10,7 @@ Create a worktree at `<main-tree>/.worktrees/<branch>` for the named branch, or 
 
 **No-argument mode:** with no args, an interactive picker shows existing worktrees to switch to.
 
-All git/file work happens inside `scripts/start.sh`. This command is thin orchestration: 1 bash call to the script + tool calls for `ExitWorktree`/`EnterWorktree` + 1 bash call to print the summary.
+All git/file work happens inside `scripts/start.sh`. This command is thin orchestration: 1 bash call to the script + tool calls for `ExitWorktree`/`EnterWorktree` + 1 zero-arg bash call after EnterWorktree to print the "Worktree ready" banner with the `/rename` hint.
 
 ## Flow
 
@@ -78,14 +78,14 @@ All git/file work happens inside `scripts/start.sh`. This command is thin orches
 
 6. **Tool call:** `EnterWorktree({ path: "<WT_PATH>" })`. This switches the session's CWD properly (clears CWD-dependent caches).
 
-7. **Print the summary — MANDATORY** for both newly-created and entered-existing worktrees:
+7. **Print the "Worktree ready" banner — MANDATORY, NON-NEGOTIABLE, applies to BOTH branches (picker + with-args), BOTH new + existing worktrees.** Make this bash call with no arguments:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" summary "<NAME>" "<BASE>" "<WT_PATH>" "<EXISTING>" "<FILES_COPIED>"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" post-enter
    ```
 
-   For picker mode, `EXISTING` is implicitly `yes` (we picked an existing worktree) and `FILES_COPIED` is `skipped`. For Branch 2, use the values from the prepare output. The script renders the user-facing summary block including the `/rename <branch>` hint (suppressed if `CLAUDE_TREE_NO_RENAME=1` is set).
+   `post-enter` is self-contained: it infers the branch, base, and path from the worktree it's now running inside (because EnterWorktree changed the CWD), and prints the user-facing block including the `/rename <branch>` hint (suppressed if `CLAUDE_TREE_NO_RENAME=1` is set in the shell). **Do not skip this step.** It is the only thing that surfaces the rename suggestion to the user — without it the command appears to end silently.
 
 ## Failure handling
 
-If any step before EnterWorktree fails, stop and surface the error. Never call EnterWorktree without a valid WT_PATH from the script. Never skip the final summary — the rename hint only fires there.
+If any step before EnterWorktree fails, stop and surface the error. Never call EnterWorktree without a valid WT_PATH from the script. Never skip the final `post-enter` call — the rename hint only fires there.
