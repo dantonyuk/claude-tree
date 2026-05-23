@@ -55,14 +55,7 @@ If the branch already exists (locally, remotely, or both), it's checked out and 
 
 After creating or detecting the worktree, the command invokes the built-in `EnterWorktree` tool with the worktree's absolute path. This properly switches the Claude Code session's working directory (clearing CWD-dependent caches), so `Read`, `Glob`, and `Bash` all see the worktree as the new root. If the session was already inside another managed worktree, `ExitWorktree({ action: "keep" })` is called first to leave it intact before entering the new one — so switching between worktrees in the same session is supported.
 
-At the end of `/work:start`, the command prints a suggestion to rename the session:
-
-```
-To rename this session to match the branch, type:
-  /rename CORE-1234
-```
-
-To suppress that hint, set `CLAUDE_TREE_NO_RENAME=1` in your shell (or via Bash inside the session). The rename itself still has to be typed by you — slash commands can only be issued by user input, not by an agent.
+At the end of `/work:start`, the assistant ends its reply with `/rename <branch>` typed on its own line. Claude Code's UI picks that up and prefills your input box with the command, so a single Enter renames the session to match the branch. Press Esc / type something else to ignore it.
 
 ### `/work:end`
 
@@ -117,7 +110,7 @@ Each worktree is a full checkout sharing the same `.git` directory. Switching be
 
 ## Limitations / known issues
 
-- **Session rename:** `/work:start` cannot rename the session for you — slash commands are user-input only. It prints a suggestion (`/rename <branch>`) for you to type. Disable the suggestion with `CLAUDE_TREE_NO_RENAME=1`.
+- **Session rename:** `/work:start` cannot run `/rename` for you — slash commands are user-input only. It ends its reply with `/rename <branch>` so Claude Code's UI prefills your input box; you press Enter (or Esc to skip).
 - **Plugin command namespace:** Claude Code requires plugin commands to use the `/<plugin>:<command>` form. There's no bare `/start` shortcut for `/work:start` — typing `/work:` will autocomplete all six subcommands, which is the intended discovery path.
 - **Branch naming:** Names are validated via `git check-ref-format --branch` before any mutation. Special characters or reserved names will be rejected before the worktree is created.
 - **`/work:end` is cross-session:** unlike the built-in `ExitWorktree` (which only handles worktrees created by `EnterWorktree` in the same session), `/work:end` works on any worktree under `.worktrees/` — including ones created in a previous session. It uses `git worktree remove` directly.

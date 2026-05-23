@@ -84,21 +84,18 @@ All git/file work happens inside `scripts/start.sh`. This command is thin orches
    "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" post-enter
    ```
 
-   `post-enter` is self-contained: it infers the branch, base, and path from the worktree it's now running inside (because EnterWorktree changed the CWD), and renders the user-facing "Worktree ready" banner on stderr. **Do not skip this step.**
+   `post-enter` is self-contained: it infers the branch, base, and path from the worktree it's now running inside (because EnterWorktree changed the CWD), prints the user-facing banner to stderr, and emits a single structured `BRANCH=<branch>` line on stdout.
 
-8. **Suggest `/rename` in your own assistant message — MANDATORY (unless suppressed).**
+8. **Prefill the rename in the input box — MANDATORY.**
 
-   Parse the structured marker `RENAME_BRANCH=<value>` from the **stdout** of step 7's bash call.
+   Read `BRANCH=<branch>` from step 7's stdout. Then end your assistant reply with this line, by itself, **typed directly in your message** (no surrounding prose, no backticks, no code fence, no tool output):
 
-   - If `RENAME_BRANCH=` is empty → the user has `CLAUDE_TREE_NO_RENAME=1` set; skip this step entirely.
-   - If `RENAME_BRANCH=<branch>` is non-empty → end your assistant response with the literal line:
+       /rename <branch>
 
-         /rename <branch>
+   Substitute `<branch>` with the actual value. That is the entire assistant message — no other text after the `post-enter` banner.
 
-     on its own line, **typed directly in your reply text** (not inside backticks, not inside a code block, not in any tool output). Substitute `<branch>` with the actual value. Optionally precede it with one short sentence like `To rename this session to match the branch:`.
-
-   **Why this matters:** Claude Code's UI parses `/command` patterns in the assistant's own message text and offers them as a one-press input-field suggestion. The same text emitted from a bash tool's stdout/stderr does NOT trigger that UI — it just renders as static text inside a tool-result block. The rename suggestion only works if you type it in your reply.
+   **Why typed-not-tool-output:** Claude Code's UI turns `/command` patterns in the assistant's own reply text into a prefilled input-field suggestion (the user presses Enter to run it). The exact same characters emitted from a bash tool's stdout/stderr render as static text inside a tool-result block and do not trigger the suggestion.
 
 ## Failure handling
 
-If any step before EnterWorktree fails, stop and surface the error. Never call EnterWorktree without a valid WT_PATH from the script. Never skip the final `post-enter` call or step 8's rename line — together they're how the user gets the one-press rename.
+If any step before EnterWorktree fails, stop and surface the error. Never call EnterWorktree without a valid WT_PATH from the script. Never skip step 8 — without it the rename suggestion will not appear in the input box.
