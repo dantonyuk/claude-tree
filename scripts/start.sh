@@ -90,12 +90,20 @@ cmd_prepare() {
   IN_WT=no
   wt_in_worktree && IN_WT=yes
 
+  # Are we already in the target worktree? If so, both ExitWorktree and
+  # EnterWorktree are no-ops / errors — the caller should skip them.
+  CURRENT=no
+  if [[ "$IN_WT" == "yes" ]] && [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$WT_PATH" ]]; then
+    CURRENT=yes
+  fi
+
   # Emit core paths early so the caller can use them on partial failure.
   printf 'NAME=%s\n' "$name"
   printf 'BASE=%s\n' "$BASE"
   printf 'MAIN=%s\n' "$MAIN"
   printf 'WT_PATH=%s\n' "$WT_PATH"
   printf 'IN_WORKTREE=%s\n' "$IN_WT"
+  printf 'CURRENT=%s\n' "$CURRENT"
 
   # Fetch base (warn-only on failure; offline is OK).
   if ! git -C "$MAIN" fetch origin "$BASE" 2>/dev/null; then

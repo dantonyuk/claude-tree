@@ -47,9 +47,11 @@ Response:
 "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" prepare "$1" "$2"
 ```
 
-Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `EXISTING`, `FILES_COPIED`, `STATUS`. On `STATUS=ok` continue to **Enter**. On failure, surface the script's stderr and stop.
+Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `CURRENT`, `EXISTING`, `FILES_COPIED`, `STATUS`. On `STATUS=ok` continue to **Enter**. On failure, surface the script's stderr and stop.
 
 ### Enter
+
+**Short-circuit:** if `CURRENT=yes` (you're already in the target worktree), **skip steps 1 and 2** and go directly to step 3 — both `ExitWorktree` and `EnterWorktree` would either no-op or error on the current CWD.
 
 1. **Release prior `EnterWorktree` session.** Call `ExitWorktree({ action: "keep" })` **only if** you've previously called `EnterWorktree` in this conversation (i.e., an earlier `/work:start` in this CC session entered a worktree). Otherwise skip — even when `IN_WORKTREE=yes`, the user may have launched CC from inside a worktree manually, in which case there is no session to release and `ExitWorktree` would render a misleading "Error: No-op" in the UI. (A "no active session" response, on the calls where you do invoke it, counts as success.)
 
