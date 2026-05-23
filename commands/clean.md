@@ -2,6 +2,7 @@
 description: Remove worktrees whose PRs are merged or closed (branches kept)
 argument-hint: ""
 allowed-tools: Bash, AskUserQuestion
+model: claude-sonnet-4-6
 ---
 
 # /work:clean

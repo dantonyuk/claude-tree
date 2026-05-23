@@ -2,6 +2,7 @@
 description: Detailed status report for the current worktree
 argument-hint: ""
 allowed-tools: Bash
+model: claude-haiku-4-5-20251001
 ---
 
 # /work:status

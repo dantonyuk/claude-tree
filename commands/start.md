@@ -2,6 +2,7 @@
 description: Create or enter a git worktree (or, with no args, pick from existing ones)
 argument-hint: "[branch-name] [base-branch]"
 allowed-tools: Bash, AskUserQuestion, EnterWorktree, ExitWorktree
+model: claude-sonnet-4-6
 ---
 
 # /work:start [branch] [base]

@@ -2,6 +2,7 @@
 description: List all active worktrees with branch, dirty state, ahead/behind, and PR status
 argument-hint: ""
 allowed-tools: Bash
+model: claude-haiku-4-5-20251001
 ---
 
 # /work:list
