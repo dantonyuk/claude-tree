@@ -51,16 +51,15 @@ if wt_has_gh; then
 fi
 
 cat <<EOF
-─────────────────────────────────────────
- Worktree status
-─────────────────────────────────────────
-branch:        $BRANCH
-base:          $BASE
-path:          $WT_PATH
-main:          $MAIN
+Worktree status
 
-vs upstream:   $upstream_str
-vs base:       $ahead_base ahead, $behind_base behind origin/$BASE
+branch:  $BRANCH
+base:    $BASE
+path:    $WT_PATH
+main:    $MAIN
+
+vs upstream:  $upstream_str
+vs base:      $ahead_base ahead, $behind_base behind origin/$BASE
 
 Dirty files:
 EOF
@@ -80,7 +79,4 @@ else
 fi
 
 echo ""
-printf 'PR:            %s\n' "$pr_str"
-echo ""
-echo "Next: /work:sync to rebase, /work:end to wrap up."
-echo "─────────────────────────────────────────"
+printf 'PR:  %s\n' "$pr_str"

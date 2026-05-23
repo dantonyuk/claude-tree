@@ -1,6 +1,5 @@
 ---
 description: Remove worktrees whose PRs are merged or closed (branches kept)
-argument-hint: ""
 allowed-tools: Bash, AskUserQuestion
 model: claude-sonnet-4-6
 ---
@@ -23,11 +22,7 @@ Find worktrees whose PR is `MERGED` or `CLOSED`, and offer to remove them. Branc
 
 2. **Present candidates with AskUserQuestion (multiSelect=true).**
 
-   Claude Code's AskUserQuestion is capped at 4 options. With "None / cancel" using one slot, you can list 3 candidates per prompt. If there are more than 3:
-
-   - Print the full list (numbered) to stdout first, so the user sees every candidate.
-   - Show the 3 most-recently-MERGED (or in order of the script's output if you can't easily sort by merge time) in the picker.
-   - The auto-added "Other" entry lets the user type any branch name not in the top 3.
+   `AskUserQuestion` caps at 4 options. Show top 3 most-recently-MERGED (or script order if you can't sort by merge time) + "None / cancel". If >3 candidates, print the full numbered list first; the auto-added "Other" lets the user type any non-top-3 name.
 
    Each option's label is `<branch> (<STATE>)`, description includes dirty/unpushed flags.
 

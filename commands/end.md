@@ -1,6 +1,5 @@
 ---
 description: Tear down the current worktree after handling uncommitted/unpushed/missing-PR work
-argument-hint: ""
 allowed-tools: Bash, AskUserQuestion, ExitWorktree
 model: claude-sonnet-4-6
 ---

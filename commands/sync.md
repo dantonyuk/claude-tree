@@ -1,6 +1,5 @@
 ---
 description: Fetch and rebase the current worktree against its base branch
-argument-hint: ""
 allowed-tools: Bash, AskUserQuestion
 model: claude-sonnet-4-6
 ---
