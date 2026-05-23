@@ -1,7 +1,7 @@
 ---
 description: Detailed status report for the current worktree
 allowed-tools: Bash
-model: claude-haiku-4-5-20251001
+model: claude-sonnet-4-6
 ---
 
 # /work:status
