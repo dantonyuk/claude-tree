@@ -201,11 +201,24 @@ cmd_post_enter() {
   # Run AFTER EnterWorktree has switched the session into the worktree.
   # Self-contained: infers branch, base, and path from current git state, so
   # the markdown only has to make one zero-arg call.
+  #
+  # Output contract:
+  #   stdout, first line: BRANCH=<branch>     (structured — markdown reads this
+  #                                            to compose the rename suggestion
+  #                                            in the LLM's own assistant text,
+  #                                            which is what triggers CC's
+  #                                            input-field prefill — printing
+  #                                            the slash command from inside a
+  #                                            tool result does NOT trigger it)
+  #   stdout, second line: RENAME_BRANCH=<branch>|<empty>
+  #                                           (<empty> means CLAUDE_TREE_NO_RENAME=1
+  #                                            was set; LLM must skip the hint)
+  #   stderr: the human-readable "Worktree ready" banner
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: /work:start post-enter must run inside a git worktree" >&2
     exit 1
   fi
-  local wt_path branch base
+  local wt_path branch base no_rename rename_hint
   wt_path=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
   branch=$(git -C "$wt_path" symbolic-ref --short HEAD 2>/dev/null || echo "?")
   # Prefer the branch's configured upstream merge ref; fall back to the repo
@@ -214,7 +227,30 @@ cmd_post_enter() {
   if [[ -z "$base" ]]; then
     base=$(cd "$wt_path" && wt_default_branch)
   fi
-  _print_ready_banner "$branch" "$base" "$wt_path" ""
+
+  no_rename="${CLAUDE_TREE_NO_RENAME:-}"
+  rename_hint="$branch"
+  [[ "$no_rename" == "1" ]] && rename_hint=""
+
+  # Structured markers for the markdown / LLM to parse.
+  printf 'BRANCH=%s\n' "$branch"
+  printf 'RENAME_BRANCH=%s\n' "$rename_hint"
+
+  # Human-readable banner on stderr (no rename text — that comes from the LLM's
+  # own assistant message so the CC input-field suggestion fires).
+  {
+    echo "─────────────────────────────────────────"
+    echo " Worktree ready"
+    echo "─────────────────────────────────────────"
+    printf 'branch:        %s\n' "$branch"
+    printf 'base:          %s\n' "$base"
+    printf 'path:          %s\n' "$wt_path"
+    echo ""
+    echo "Session is now switched to the worktree."
+    echo ""
+    echo "Next: /work:status, /work:sync, /work:end"
+    echo "─────────────────────────────────────────"
+  } >&2
 }
 
 cmd_summary() {
