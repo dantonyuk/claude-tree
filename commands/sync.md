@@ -10,56 +10,24 @@ Bring the current worktree up to date with its base branch (rebase).
 
 ## Steps
 
-```bash
-. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
-wt_require_git || exit 1
-```
+1. **Check state.**
 
-1. **Refuse outside a worktree:**
    ```bash
-   if ! wt_in_worktree; then
-     echo "ERROR: /work:sync only runs inside a worktree."
-     exit 1
-   fi
+   "${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh" check
    ```
 
-2. **Resolve `BASE=$(wt_default_branch)`** and current `BRANCH=$(git branch --show-current)`.
+   Output is structured: `BRANCH=…`, `BASE=…`, `DIRTY=yes|no`. Non-zero exit → not in a worktree; the script printed the message, just stop.
 
-3. **Handle a dirty working tree** with AskUserQuestion. Options:
-   - "Stash, rebase, pop" — `git stash push -u -m "/work:sync auto-stash"` → rebase → `git stash pop`
-   - "Commit current changes first" — instruct the user to commit, then re-run `/work:sync`
-   - "Cancel"
+2. **If `DIRTY=no`**, run directly:
 
-   If clean, skip this prompt.
-
-4. **Fetch the base:**
    ```bash
-   git fetch origin "$BASE"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh" execute
    ```
 
-5. **Rebase:**
-   ```bash
-   git rebase "origin/$BASE"
-   ```
+3. **If `DIRTY=yes`**, use `AskUserQuestion` to confirm:
 
-6. **On rebase conflict** — DO NOT try to auto-resolve. Print:
-   ```
-   Rebase encountered conflicts. Resolve them, then run one of:
-     git add <files> && git rebase --continue
-     git rebase --abort
-   ```
-   and stop.
+   - `"Stash, rebase, pop"` → run `"${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh" execute --stash`
+   - `"Commit first, then re-run"` → tell the user to commit and re-invoke `/work:sync`, then stop
+   - `"Cancel"` → stop
 
-7. **On success** — print new state:
-   ```bash
-   echo "Sync complete. New status:"
-   wt_ahead_behind   # ahead/behind upstream
-   git rev-list --count HEAD.."origin/$BASE"   # behind base (should be 0)
-   ```
-   If the branch was previously pushed (upstream exists) and rebase moved commits, suggest:
-   ```
-   Note: history was rewritten; if this branch has been pushed, you'll need
-     git push --force-with-lease
-   ```
-
-8. **If we stashed in step 3**, pop the stash. If pop conflicts, leave them for the user to resolve.
+The execute script handles fetch + rebase + (optional) stash-pop + final summary. On rebase conflict it prints remediation instructions and exits non-zero — pass that output through verbatim.

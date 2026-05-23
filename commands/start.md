@@ -1,59 +1,34 @@
 ---
 description: Create or enter a git worktree (or, with no args, pick from existing ones)
 argument-hint: "[branch-name] [base-branch]"
-allowed-tools: Bash, AskUserQuestion, Read, EnterWorktree, ExitWorktree
+allowed-tools: Bash, AskUserQuestion, EnterWorktree, ExitWorktree
 ---
 
 # /work:start [branch] [base]
 
-Create a worktree at `<main-tree>/.worktrees/<branch>` for the named branch, or enter it if it already exists. Default base = repo's default branch (auto-detected from `origin/HEAD`).
+Create a worktree at `<main-tree>/.worktrees/<branch>` for the named branch, or enter it if it already exists. Default base = repo's default branch.
 
-**No-argument mode**: `/work:start` with no arguments shows an interactive picker of existing worktrees (or a usage hint if none exist). Picking one enters it directly without re-creating.
+**No-argument mode:** with no args, an interactive picker shows existing worktrees to switch to.
 
-## Steps
+All git/file work happens inside `scripts/start.sh`. This command is thin orchestration: 1 bash call to the script + tool calls for `ExitWorktree`/`EnterWorktree` + 1 bash call to print the summary.
 
-Always source the helper library first:
+## Flow
 
-```bash
-. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
-wt_require_git || exit 1
-```
+### Branch 1 — no arguments: picker
 
-1. **Parse arguments.** `$1` is the branch name (optional); `$2` is the base branch (optional).
-
-   **If `$1` is provided**, set `NAME="$1"` and proceed to step 2 normally.
-
-   **If `$1` is missing → picker mode.** Enumerate existing worktrees and present a picker.
-
-   **Build the candidate list:**
+1. **Bash:**
 
    ```bash
-   MAIN=$(wt_main_dir)
-   CURRENT_WT=
-   if wt_in_worktree; then
-     CURRENT_WT=$(git rev-parse --show-toplevel)
-   fi
-
-   # Lines of "<unix_ts>\t<path>\t<branch>" for every non-main, non-current worktree,
-   # sorted by last-commit time descending (most recent first).
-   git -C "$MAIN" worktree list --porcelain | awk '
-     /^worktree / { p = $2; next }
-     /^branch refs\/heads\// { sub("refs/heads/", "", $2); print p "\t" $2 }
-   ' | while IFS=$'\t' read -r p b; do
-     [[ "$p" == "$MAIN" ]] && continue
-     [[ -n "$CURRENT_WT" && "$p" == "$CURRENT_WT" ]] && continue
-     ts=$(git -C "$p" log -1 --format=%ct 2>/dev/null || echo 0)
-     printf '%s\t%s\t%s\n' "$ts" "$p" "$b"
-   done | sort -rn
+   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" candidates
    ```
 
-   **No candidates after exclusions:**
-   - If the user is already in a worktree and no others exist, print:
-     ```
-     No other worktrees to switch to. Use /work:start <branch> to create a new one.
-     ```
-     and stop.
-   - If no worktrees exist at all (running from main checkout, none under `.worktrees/`), print the 3-line usage hint and stop:
+   First stdout line is `IN_WORKTREE=yes|no` (session state). Remaining lines are TSV candidates (one per row):
+   `<ts>\t<path>\t<branch>\t<dirty>\t<ahead>/<behind>\t<last_commit>`. Already sorted by recency (most recent first). The current worktree (if any) is excluded.
+
+2. **No candidates** (only the IN_WORKTREE header, no TSV rows):
+
+   - If `IN_WORKTREE=yes` → print: `No other worktrees to switch to. Use /work:start <branch> to create a new one.` Stop.
+   - If `IN_WORKTREE=no` → print the 3-line usage hint:
      ```
      No existing worktrees found.
 
@@ -62,137 +37,55 @@ wt_require_git || exit 1
        /work:start <branch>                 # create or enter <branch>
        /work:start <branch> <base>          # create from a specific base branch
      ```
+     Stop.
 
-   **At least one candidate — prepare the picker.**
+3. **Candidates exist — present a picker.** Cap is 4 options total in `AskUserQuestion`. With "Cancel" using one slot, you can show 3 worktree options. If more than 3 candidates: **print all candidates** (numbered, with each row's branch/dirty/ahead-behind/last-commit) to stdout *first*, **then** show the picker with the top 3 + Cancel. The auto-added "Other" lets the user type any non-top-3 name.
 
-   Claude Code's `AskUserQuestion` is capped at **4 options total** (the UI auto-adds an "Other" / "Type something else" entry afterward). With "Cancel" occupying one slot, that leaves **3 worktree slots**.
+   For each picker option:
+   - `label`: `<branch>`
+   - `description`: `<dirty>, <ahead>/<behind>, last commit <when>`
 
-   - If `N ≤ 3` candidates → all fit alongside Cancel; show the picker directly.
-   - If `N > 3` → **first** print a numbered list of every candidate to stdout (so the user can see all of them, not just the top 3). Format each row as:
-     ```
-     <#>. <branch>   <clean|dirty>, <ahead>/<behind>, last commit <when>   (<path>)
-     ```
-     **Then** show the picker containing only the 3 most recent + Cancel. The auto-added "Other" lets the user type any branch name not in the top 3.
+   Always add `{ label: "Cancel", description: "Don't enter any worktree" }` as the final option.
 
-   For each option in the picker, the description should be short:
-   `"<clean|dirty>, <ahead>/<behind>, last commit <when>"`
+   **Tool call:** `AskUserQuestion(...)`.
 
-   **Tool call:** `AskUserQuestion({ questions: [{ question: "Which worktree do you want to enter?", header: "Worktree", multiSelect: false, options: [ ...up to 3 worktree options..., { label: "Cancel", description: "Don't enter any worktree" } ] }] })`
+4. **Handle the response:**
+   - A worktree label → set `NAME` and `WT_PATH` from that candidate's TSV row. Skip to **Enter** below.
+   - `"Cancel"` → stop silently.
+   - `"Other"` (free text) → treat as a branch argument:
+     - if it matches a branch in the candidate list → take that row's `WT_PATH`, jump to **Enter**;
+     - otherwise restart this whole command's flow as if the user typed `/work:start <text>` (i.e., proceed to Branch 2 with that name as `$1`).
 
-   **Handle the response:**
-   - **Worktree label selected** → set `NAME` to that branch and `WT_PATH` to the corresponding path from the candidate list. Skip steps 2-7 (worktree exists, nothing to validate, fetch, create, or copy), but **run step 8 and then step 9** — step 9 prints the summary and the rename suggestion, which apply equally to "entered existing" as to "newly created."
-   - **Cancel** → stop silently.
-   - **Other** (user typed free text) → treat the text as a branch argument:
-     - If it matches a branch in the candidate list, jump to step 8 (then step 9) like a normal selection.
-     - Otherwise fall through and execute `/work:start <text>` end-to-end starting from step 2 (validate, possibly create). This means the picker doubles as an entry point for creating new worktrees too.
+### Branch 2 — with arguments: create or detect
 
-2. **Validate the branch name** before any mutation:
-   ```bash
-   git check-ref-format --branch "$1" || { echo "ERROR: invalid branch name: $1"; exit 1; }
-   ```
-
-3. **Resolve paths and base:**
-   ```bash
-   NAME="$1"
-   MAIN=$(wt_main_dir)
-   BASE="${2:-$(wt_default_branch)}"
-   WT_PATH=$(wt_path "$NAME")
-   ```
-
-4. **Fetch the base branch** from origin (warn on failure but proceed — offline is OK):
-   ```bash
-   git -C "$MAIN" fetch origin "$BASE" || echo "WARNING: fetch of $BASE failed; continuing with local state"
-   ```
-
-5. **Skip creation if the worktree already exists.** Detect first; do the entry in step 8 (single code path):
-   ```bash
-   EXISTING=no
-   if git -C "$MAIN" worktree list --porcelain | awk '/^worktree / {print $2}' | grep -Fxq "$WT_PATH"; then
-     EXISTING=yes
-     echo "Worktree already exists at $WT_PATH; entering it."
-   fi
-   ```
-   If `EXISTING=yes`, **skip step 6 and step 7** (no creation, no file copy), then **continue with step 8 and step 9** — step 9 (the summary + rename suggestion) always runs regardless of whether the worktree was created or pre-existing.
-
-6. **Create the worktree** based on existing branch state. Run `wt_branch_state "$NAME"` and act on the result:
-   - `none` → brand-new branch off the base:
-     ```bash
-     git -C "$MAIN" worktree add -b "$NAME" "$WT_PATH" "origin/$BASE"
-     ```
-   - `local` → reuse local branch; notify the user it existed:
-     ```bash
-     echo "Note: branch '$NAME' already existed locally; reusing it."
-     git -C "$MAIN" worktree add "$WT_PATH" "$NAME"
-     ```
-   - `remote` → fetch and check out remote branch:
-     ```bash
-     echo "Note: branch '$NAME' already existed on origin; checking it out."
-     git -C "$MAIN" fetch origin "$NAME"
-     git -C "$MAIN" worktree add "$WT_PATH" -b "$NAME" "origin/$NAME"
-     ```
-   - `both` → reuse local; if remote is ahead and ff-able, fast-forward local first:
-     ```bash
-     echo "Note: branch '$NAME' existed both locally and on origin; using local."
-     if git -C "$MAIN" merge-base --is-ancestor "$NAME" "origin/$NAME" 2>/dev/null \
-        && [ "$(git -C "$MAIN" rev-parse "$NAME")" != "$(git -C "$MAIN" rev-parse "origin/$NAME")" ]; then
-       echo "Fast-forwarding local '$NAME' to match origin..."
-       git -C "$MAIN" fetch origin "$NAME":"$NAME"
-     fi
-     git -C "$MAIN" worktree add "$WT_PATH" "$NAME"
-     ```
-
-7. **Copy gitignored root files** (env files, `.npmrc`, etc.) into the new worktree:
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/copy-untracked.sh" "$MAIN" "$WT_PATH"
-   ```
-
-8. **Enter the worktree via the EnterWorktree built-in tool.** This properly switches the session's working directory and clears CWD-dependent caches (plans, memory, system prompt sections) — much cleaner than a bare `cd`.
-
-   **Conditionally** release any prior `EnterWorktree` session first. Skip this call when starting from the main checkout — `ExitWorktree`'s "no active session" reply renders as a noisy "Error" in the CC UI even though it's just a documented no-op. We only need the release call when the session is already inside another worktree (i.e., the user is switching from one worktree to another in the same session):
+1. **Bash:**
 
    ```bash
-   # Captured earlier in `wt_in_worktree`-aware logic; recompute if needed.
-   if wt_in_worktree; then
-     CALL_EXIT=yes
-   else
-     CALL_EXIT=no
-   fi
+   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" prepare "$1" "$2"
    ```
 
-   If `CALL_EXIT=yes`:
-   - **Tool call:** `ExitWorktree({ action: "keep" })`
-     (If the response says "no active EnterWorktree session", treat as success and proceed — we were in a worktree via bare `cd`, not via `EnterWorktree`. No further action needed.)
+   stdout captures (parse line-by-line): `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE` (yes/no, session state at script start), `EXISTING` (yes/no — was the worktree pre-existing), then either `FILES_COPIED=…` and `STATUS=ok`, or `STATUS=failed-…` on error.
 
-   Then enter the target worktree by absolute path **(always)**:
+   - On `STATUS=ok` → continue to **Enter**.
+   - On any failure → the script printed the git error to stderr; surface it to the user and stop.
 
-   - **Tool call:** `EnterWorktree({ path: "<absolute WT_PATH>" })`
+### Enter (both branches converge here)
 
-   `EnterWorktree`'s `path` parameter accepts any worktree registered in `git worktree list`, so it works identically for newly-created and pre-existing worktrees.
+5. **Conditionally release a prior `EnterWorktree` session.** Use the `IN_WORKTREE` value captured above:
 
-9. **Print a summary — MANDATORY.** This step **always runs**, regardless of which path led here (newly created worktree, pre-existing worktree entered by name, or worktree picked from the no-arg picker). The rename suggestion in this summary is the only way `/work:start` cues the user to align the session name with the branch — skipping it leaves the session named after the previous context, which is exactly what the user reported as a bug.
+   - If `IN_WORKTREE=yes` → **Tool call:** `ExitWorktree({ action: "keep" })`. If the response says "no active EnterWorktree session", treat as success and proceed.
+   - If `IN_WORKTREE=no` → **skip** the `ExitWorktree` call. Its no-op response renders as a misleading error in the CC UI when called from main, and we know there's nothing to release.
 
-   Include the rename block unless the env var `CLAUDE_TREE_NO_RENAME=1` is set (check via `[[ "${CLAUDE_TREE_NO_RENAME:-}" == "1" ]]` in a quick Bash call before composing the message):
-   ```
-   ─────────────────────────────────────────
-    Worktree ready
-   ─────────────────────────────────────────
-   branch:  <NAME>
-   base:    <BASE>
-   path:    <WT_PATH>
-   files copied: <count from step 7, or "(skipped — entering existing)">
+6. **Tool call:** `EnterWorktree({ path: "<WT_PATH>" })`. This switches the session's CWD properly (clears CWD-dependent caches).
 
-   Session is now switched to the worktree (EnterWorktree).
+7. **Print the summary — MANDATORY** for both newly-created and entered-existing worktrees:
 
-   To rename this session to match the branch, type:
-     /rename <NAME>
-   (Set CLAUDE_TREE_NO_RENAME=1 in your shell to suppress this hint.)
-
-   Next: /work:status, /work:sync, /work:end
-   ─────────────────────────────────────────
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" summary "<NAME>" "<BASE>" "<WT_PATH>" "<EXISTING>" "<FILES_COPIED>"
    ```
 
-   If `CLAUDE_TREE_NO_RENAME=1` is set, omit the entire "To rename this session…" block (including the suppression hint).
+   For picker mode, `EXISTING` is implicitly `yes` (we picked an existing worktree) and `FILES_COPIED` is `skipped`. For Branch 2, use the values from the prepare output. The script renders the user-facing summary block including the `/rename <branch>` hint (suppressed if `CLAUDE_TREE_NO_RENAME=1` is set).
 
 ## Failure handling
 
-If any step errors, stop and surface the error verbatim. Do not attempt to continue past a failed worktree creation.
+If any step before EnterWorktree fails, stop and surface the error. Never call EnterWorktree without a valid WT_PATH from the script. Never skip the final summary — the rename hint only fires there.

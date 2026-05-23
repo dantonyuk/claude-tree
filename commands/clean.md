@@ -6,60 +6,37 @@ allowed-tools: Bash, AskUserQuestion
 
 # /work:clean
 
-Find worktrees whose PR is merged or closed, and offer to remove them. Branches are always kept.
+Find worktrees whose PR is `MERGED` or `CLOSED`, and offer to remove them. Branches are always kept.
 
 ## Steps
 
-```bash
-. "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh"
-wt_require_git || exit 1
-```
+1. **List candidates.**
 
-1. **Require `gh`:**
    ```bash
-   if ! wt_has_gh; then
-     echo "ERROR: /work:clean needs the gh CLI to query PR status. Install gh or remove worktrees manually."
-     exit 1
-   fi
+   "${CLAUDE_PLUGIN_ROOT}/scripts/clean.sh" candidates
    ```
 
-2. **Resolve `MAIN=$(wt_main_dir)`** and enumerate worktrees via `git -C "$MAIN" worktree list --porcelain`.
+   Output is TSV — one line per candidate: `<path>\t<branch>\t<state>\t<dirty>\t<unpushed>`. Empty output → nothing to clean → print "Nothing to clean (no worktrees with merged/closed PRs)." and stop.
 
-3. **For each non-main worktree**, get the branch name, then query:
-   ```bash
-   state=$(gh pr view "$BRANCH" --json state --jq '.state' 2>/dev/null)
-   ```
-   Collect candidates where `state` is `MERGED` or `CLOSED`.
+   The script errors with exit 1 if `gh` is missing. Pass that message through.
 
-4. **If no candidates** → print "Nothing to clean (no worktrees with merged/closed PRs)." and exit.
+2. **Present candidates with AskUserQuestion (multiSelect=true).**
 
-5. **Show the candidates** in a table:
-   ```
-   | # | worktree path                 | branch     | PR state |
-   |---|-------------------------------|------------|----------|
-   | 1 | .../.worktrees/CORE-1111      | CORE-1111  | MERGED   |
-   | 2 | .../.worktrees/CORE-2222      | CORE-2222  | CLOSED   |
-   ```
+   Claude Code's AskUserQuestion is capped at 4 options. With "None / cancel" using one slot, you can list 3 candidates per prompt. If there are more than 3:
 
-6. **Use AskUserQuestion (multi-select)** with each candidate as one option labelled with branch + state. Add a "None of the above" option to allow bailing.
+   - Print the full list (numbered) to stdout first, so the user sees every candidate.
+   - Show the 3 most-recently-MERGED (or in order of the script's output if you can't easily sort by merge time) in the picker.
+   - The auto-added "Other" entry lets the user type any branch name not in the top 3.
 
-7. **For each selected worktree:**
-   - Run a subshell `(cd "<path>" && wt_dirty)` — if dirty:
-     - AskUserQuestion (per-worktree): "Worktree `<branch>` has uncommitted changes. (1) Skip this one. (2) Force-remove (discard work)."
-   - Run a subshell `(cd "<path>" && wt_unpushed_count)` — if unpushed > 0 and PR state is CLOSED (not merged), warn but allow.
-   - Then:
+   Each option's label is `<branch> (<STATE>)`, description includes dirty/unpushed flags.
+
+3. **For each selected candidate**:
+
+   - If `dirty=yes` or `unpushed > 0`, **AskUserQuestion (per worktree)**: "Worktree `<branch>` has local changes. Skip / Force-remove (discards work)?". Only proceed if user opted into force.
+   - Run:
      ```bash
-     git -C "$MAIN" worktree remove "<path>"     # or --force if user opted in
+     "${CLAUDE_PLUGIN_ROOT}/scripts/clean.sh" remove "<path>" [--force]
      ```
+     `--force` only if the per-worktree confirmation explicitly chose it.
 
-8. **Print summary:**
-   ```
-   Removed: <list>
-   Skipped: <list with reason>
-   Branches preserved: <list>
-   ```
-
-## Notes
-
-- Never deletes branches — out of scope by design.
-- Only acts on worktrees under `.worktrees/`; any external worktrees registered to the repo are listed but not touched.
+4. **Print a brief summary** of what was removed and what was skipped (and why).
