@@ -86,15 +86,15 @@ All git/file work happens inside `scripts/start.sh`. This command is thin orches
 
    `post-enter` is self-contained: it infers the branch, base, and path from the worktree it's now running inside (because EnterWorktree changed the CWD), prints the user-facing banner to stderr, and emits a single structured `BRANCH=<branch>` line on stdout.
 
-8. **Prefill the rename in the input box — MANDATORY.**
+8. **Offer the rename as a clickable / prefillable slash-command suggestion — MANDATORY.**
 
-   Read `BRANCH=<branch>` from step 7's stdout. Then end your assistant reply with this line, by itself, **typed directly in your message** (no surrounding prose, no backticks, no code fence, no tool output):
+   Read `BRANCH=<branch>` from step 7's stdout. Then end your assistant reply with the slash command wrapped in single inline backticks, on its own line:
 
-       /rename <branch>
+       `/rename <branch>`
 
-   Substitute `<branch>` with the actual value. That is the entire assistant message — no other text after the `post-enter` banner.
+   Substitute `<branch>` with the actual value. No other text follows on that line; no triple-backtick code fence around it; no indented code block. The inline-backtick form is what Claude Code's UI uses to render the token as a clickable / prefillable command — naked text and fenced code blocks render as plain text instead.
 
-   **Why typed-not-tool-output:** Claude Code's UI turns `/command` patterns in the assistant's own reply text into a prefilled input-field suggestion (the user presses Enter to run it). The exact same characters emitted from a bash tool's stdout/stderr render as static text inside a tool-result block and do not trigger the suggestion.
+   Your assistant reply ends with that one inline-code line. The `post-enter` banner (stderr from step 7) is the only narrative output — do not add additional prose.
 
 ## Failure handling
 
