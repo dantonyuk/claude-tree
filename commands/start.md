@@ -51,9 +51,7 @@ Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `EXISTING`, `FIL
 
 ### Enter
 
-1. **Release prior `EnterWorktree` session.**
-   - `IN_WORKTREE=yes` → `ExitWorktree({ action: "keep" })`. Treat "no active session" as success.
-   - `IN_WORKTREE=no` → skip; the no-op response renders as a misleading error in the CC UI.
+1. **Release prior `EnterWorktree` session.** Call `ExitWorktree({ action: "keep" })` **only if** you've previously called `EnterWorktree` in this conversation (i.e., an earlier `/work:start` in this CC session entered a worktree). Otherwise skip — even when `IN_WORKTREE=yes`, the user may have launched CC from inside a worktree manually, in which case there is no session to release and `ExitWorktree` would render a misleading "Error: No-op" in the UI. (A "no active session" response, on the calls where you do invoke it, counts as success.)
 
 2. `EnterWorktree({ path: "<WT_PATH>" })`.
 
