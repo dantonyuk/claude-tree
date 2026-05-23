@@ -46,9 +46,6 @@ if wt_in_worktree; then
   else
     emit "  PR: (gh not installed; PR status unknown)"
   fi
-
-  emit ""
-  emit "  Tip: /work:status for details, /work:sync to rebase, /work:end to tear down."
 else
   emit "[work plugin] Session is in MAIN checkout of repo \"$REPO_NAME\" ($MAIN)."
 
@@ -63,6 +60,4 @@ else
   else
     emit "  No active worktrees yet."
   fi
-
-  emit "  Tip: /work:start <branch> [base] to create one. /work:list to see all."
 fi
