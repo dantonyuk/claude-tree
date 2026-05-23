@@ -119,18 +119,18 @@ cmd_prepare() {
     none)
       # --no-track: don't inherit origin/$BASE as upstream. The new branch should
       # have no upstream until `git push -u origin <branch>` sets it later.
-      git -C "$MAIN" worktree add --no-track -b "$name" "$WT_PATH" "origin/$BASE" >&2 || {
+      git -C "$MAIN" worktree add -q --no-track -b "$name" "$WT_PATH" "origin/$BASE" >&2 || {
         printf 'STATUS=failed-create\n'; exit 1
       }
       ;;
     local)
-      git -C "$MAIN" worktree add "$WT_PATH" "$name" >&2 || {
+      git -C "$MAIN" worktree add -q "$WT_PATH" "$name" >&2 || {
         printf 'STATUS=failed-create\n'; exit 1
       }
       ;;
     remote)
       git -C "$MAIN" fetch origin "$name" 2>/dev/null >&2 || true
-      git -C "$MAIN" worktree add "$WT_PATH" -b "$name" "origin/$name" >&2 || {
+      git -C "$MAIN" worktree add -q "$WT_PATH" -b "$name" "origin/$name" >&2 || {
         printf 'STATUS=failed-create\n'; exit 1
       }
       ;;
@@ -139,7 +139,7 @@ cmd_prepare() {
          && [[ "$(git -C "$MAIN" rev-parse "$name")" != "$(git -C "$MAIN" rev-parse "origin/$name")" ]]; then
         git -C "$MAIN" fetch origin "$name:$name" 2>/dev/null >&2 || true
       fi
-      git -C "$MAIN" worktree add "$WT_PATH" "$name" >&2 || {
+      git -C "$MAIN" worktree add -q "$WT_PATH" "$name" >&2 || {
         printf 'STATUS=failed-create\n'; exit 1
       }
       ;;
