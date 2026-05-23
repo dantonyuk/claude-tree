@@ -76,7 +76,7 @@ Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `CURRENT`, `EXIS
 
    Session is now switched to the worktree.
 
-   Next: /rename <BRANCH>, /work:status, /work:sync, /work:end
+   Next: /rename <BRANCH>
    ─────────────────────────────────────────
 
    That is the entire assistant reply. No prose before or after.
