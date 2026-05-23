@@ -131,11 +131,29 @@ wt_session_marker() {
 }
 
 wt_session_active() {
-  [[ -f "$(wt_session_marker)" ]]
+  # Returns 0 (truthy in shell) if a prior EnterWorktree session is likely
+  # still active. We require BOTH the marker file to exist AND the current
+  # working directory to be inside the marker's recorded worktree path —
+  # to catch cases where the marker has outlived CC's internal session
+  # state (e.g., CWD has been reset back to the launch directory).
+  local marker
+  marker="$(wt_session_marker)"
+  [[ -f "$marker" ]] || return 1
+  local recorded
+  recorded=$(head -n1 "$marker" 2>/dev/null)
+  [[ -z "$recorded" ]] && return 1
+  local cwd
+  cwd=$(pwd -P 2>/dev/null) || return 1
+  [[ "$cwd" == "$recorded" || "$cwd" == "$recorded"/* ]]
 }
 
 wt_session_mark() {
-  : > "$(wt_session_marker)" 2>/dev/null || true
+  # Record the active worktree's root path so future calls can verify the
+  # marker is still relevant. Called from post-enter with --mark, only when
+  # EnterWorktree actually established a session in this CC run.
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  printf '%s\n' "$root" > "$(wt_session_marker)" 2>/dev/null || true
 }
 
 wt_session_unmark() {

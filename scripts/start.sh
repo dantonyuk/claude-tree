@@ -28,7 +28,8 @@ usage() {
 usage:
   $(basename "$0") candidates
   $(basename "$0") prepare <name> [base]
-  $(basename "$0") post-enter
+  $(basename "$0") post-enter [--mark]
+  $(basename "$0") session-unmark
 EOF
   exit 2
 }
@@ -103,9 +104,16 @@ cmd_prepare() {
   fi
 
   # Does a prior EnterWorktree session need releasing first? See lib.sh
-  # wt_session_* — marker is written by post-enter, cleared by end.sh teardown.
+  # wt_session_* — marker is written by post-enter --mark, cleared by end.sh
+  # teardown. wt_session_active also verifies CWD is inside the recorded
+  # worktree, so a stale marker (e.g., CC session was reset but file remains)
+  # gets caught here. If we detect a stale marker, clear it proactively.
   local ACTIVE_SESSION=no
-  wt_session_active && ACTIVE_SESSION=yes
+  if wt_session_active; then
+    ACTIVE_SESSION=yes
+  else
+    [[ -f "$(wt_session_marker)" ]] && wt_session_unmark
+  fi
 
   # Emit core paths early so the caller can use them on partial failure.
   printf 'NAME=%s\n' "$name"
@@ -178,8 +186,14 @@ cmd_prepare() {
 }
 
 cmd_post_enter() {
-  # Run AFTER EnterWorktree has switched the session into the worktree.
+  # Run AFTER EnterWorktree has switched the session into the worktree
+  # (or, in the CURRENT=yes short-circuit, with no preceding tool call).
   # Self-contained: infers branch, base, and path from current git state.
+  #
+  # Optional --mark flag: record the EnterWorktree session as active. The
+  # caller passes --mark only when an EnterWorktree call actually ran
+  # (i.e., not in the CURRENT=yes short-circuit, where the LLM skipped
+  # the call because we were already in the target worktree).
   #
   # Output contract: structured KEY=value pairs on stdout only — no banner
   # text from the script. The user-facing "Worktree ready" banner is composed
@@ -187,15 +201,19 @@ cmd_post_enter() {
   # the trailing "/rename <branch>" line appears in the assistant's typed
   # message rather than inside a tool-result block — that's the format
   # Claude Code's terminal CLI scans for slash-command autocomplete.
-
-  # Mark the session as having an active EnterWorktree session. Drives the
-  # ExitWorktree decision in the next /work:start. Done first so a later
-  # failure doesn't leave the marker out of sync with CC's internal state.
-  wt_session_mark
+  local mark=0
+  if [[ "${1:-}" == "--mark" ]]; then
+    mark=1
+    shift
+  fi
 
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: /work:start post-enter must run inside a git worktree" >&2
     exit 1
+  fi
+
+  if (( mark )); then
+    wt_session_mark
   fi
   local wt_path branch base
   wt_path=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -212,10 +230,15 @@ cmd_post_enter() {
   printf 'WT_PATH=%s\n' "$wt_path"
 }
 
+cmd_session_unmark() {
+  wt_session_unmark
+}
+
 case "${1:-}" in
-  candidates)  shift; cmd_candidates "$@" ;;
-  prepare)     shift; cmd_prepare "$@" ;;
-  post-enter)  shift; cmd_post_enter "$@" ;;
+  candidates)     shift; cmd_candidates "$@" ;;
+  prepare)        shift; cmd_prepare "$@" ;;
+  post-enter)     shift; cmd_post_enter "$@" ;;
+  session-unmark) shift; cmd_session_unmark "$@" ;;
   ""|-h|--help) usage ;;
   *)           echo "unknown subcommand: $1" >&2; usage ;;
 esac

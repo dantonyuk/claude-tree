@@ -1,6 +1,6 @@
 {
   "name": "work",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Worktree-per-ticket git workflow for Claude Code.",
   "author": {
     "name": "Dmitry Antonyuk"

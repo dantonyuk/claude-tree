@@ -51,16 +51,16 @@ Parse stdout: `NAME`, `BASE`, `MAIN`, `WT_PATH`, `IN_WORKTREE`, `CURRENT`, `ACTI
 
 ### Enter
 
-**Short-circuit:** if `CURRENT=yes` (you're already in the target worktree), **skip steps 1 and 2** and go directly to step 3 — both `ExitWorktree` and `EnterWorktree` would either no-op or error on the current CWD.
+**Short-circuit:** if `CURRENT=yes` (you're already in the target worktree), **skip steps 1 and 2** and go directly to step 3 (omit `--mark` there) — both `ExitWorktree` and `EnterWorktree` would either no-op or error on the current CWD.
 
-1. **Release prior `EnterWorktree` session.** If `ACTIVE_SESSION=yes`, call `ExitWorktree({ action: "keep" })`. Otherwise skip. (`ACTIVE_SESSION` is the script's marker-file check — `yes` only when a previous `/work:start` in this CC session entered a worktree and `/work:end` hasn't run since.)
+1. **Release prior `EnterWorktree` session.** If `ACTIVE_SESSION=yes`, call `ExitWorktree({ action: "keep" })`. If the response is "No-op: there is no active EnterWorktree session..." the marker is stale (CC's session was reset behind our back) — silently run `"${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" session-unmark` via Bash, then continue. Otherwise continue.
 
-2. `EnterWorktree({ path: "<WT_PATH>" })`.
+2. `EnterWorktree({ path: "<WT_PATH>" })`. If the response is "Already in a worktree session..." an untracked session exists — call `ExitWorktree({ action: "keep" })` (treat any "No-op" as success), then retry `EnterWorktree({ path: "<WT_PATH>" })`.
 
-3. **Read worktree facts.**
+3. **Read worktree facts.** Pass `--mark` to record the active session unless you took the CURRENT=yes short-circuit.
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" post-enter
+   "${CLAUDE_PLUGIN_ROOT}/scripts/start.sh" post-enter [--mark]
    ```
 
    Emits `BRANCH`, `BASE`, `WT_PATH` on stdout. No banner, no stderr.
