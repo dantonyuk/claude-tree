@@ -59,7 +59,8 @@ cmd_prepare() {
   git fetch origin "$BASE" >/dev/null 2>&1 || true
   AHEAD_BASE=$(git rev-list --count "origin/$BASE..HEAD" 2>/dev/null || echo 0)
 
-  # Structured output for the LLM
+  # Structured output for the LLM (which composes the user-facing summary
+  # from these fields — no duplicate banner on stderr).
   cat <<EOF
 WT_PATH=$WT_PATH
 BRANCH=$BRANCH
@@ -71,29 +72,6 @@ PR_STATE=$PR_STATE
 PR_URL=$PR_URL
 AHEAD_BASE=$AHEAD_BASE
 EOF
-
-  # Human-readable summary on stderr for the user.
-  {
-    echo "─────────────────────────────────────────"
-    echo " Ending worktree"
-    echo "─────────────────────────────────────────"
-    printf 'path:           %s\n' "$WT_PATH"
-    printf 'branch:         %s\n' "$BRANCH"
-    printf 'base:           %s\n' "$BASE"
-    printf 'dirty:          %s\n' "$DIRTY"
-    printf 'unpushed:       %s\n' "$UNPUSHED"
-    if [[ "$AHEAD_BASE" == "0" ]]; then
-      echo "ahead of base:  0  (nothing to PR; branch is at base)"
-    else
-      printf 'ahead of base:  %s commits\n' "$AHEAD_BASE"
-    fi
-    if [[ "$PR_STATE" == "none" ]]; then
-      echo "PR:             none"
-    else
-      printf 'PR:             (%s) %s\n' "$PR_STATE" "$PR_URL"
-    fi
-    echo "─────────────────────────────────────────"
-  } >&2
 }
 
 cmd_act() {
