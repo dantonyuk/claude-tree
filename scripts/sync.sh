@@ -56,16 +56,13 @@ cmd_execute() {
 
   if (( do_stash )); then
     if wt_dirty; then
-      echo "==> stashing local changes..." >&2
       git stash push -u -m "/work:sync auto-stash" >&2 || { echo "ERROR: stash failed" >&2; exit 1; }
       stashed=1
     fi
   fi
 
-  echo "==> fetching origin/$BASE..." >&2
   git fetch origin "$BASE" >&2 || { echo "ERROR: fetch failed" >&2; exit 1; }
 
-  echo "==> rebasing onto origin/$BASE..." >&2
   if ! git rebase "origin/$BASE" >&2; then
     echo "" >&2
     echo "Rebase encountered conflicts. Resolve them, then run one of:" >&2
@@ -80,7 +77,6 @@ cmd_execute() {
 
   # Pop stash if we stashed
   if (( stashed )); then
-    echo "==> restoring stashed changes..." >&2
     if ! git stash pop >&2; then
       echo "WARNING: 'git stash pop' had conflicts; resolve manually (git stash list to verify)." >&2
     fi

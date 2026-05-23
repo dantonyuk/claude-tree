@@ -98,7 +98,6 @@ cmd_act() {
   case "$action" in
     commit-push-pr|commit-push)
       [[ -z "$msg" ]] && { echo "ERROR: $action requires --message" >&2; exit 2; }
-      echo "==> committing all changes..." >&2
       git add -A || { echo "ERROR: git add failed" >&2; exit 1; }
       git commit -m "$msg" || { echo "ERROR: git commit failed" >&2; exit 1; }
       ;;
@@ -107,7 +106,6 @@ cmd_act() {
   # PUSH phase
   case "$action" in
     commit-push-pr|commit-push|push-pr|push)
-      echo "==> pushing..." >&2
       if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
         git push >&2 || { echo "ERROR: git push failed" >&2; exit 1; }
       else
@@ -120,7 +118,6 @@ cmd_act() {
   case "$action" in
     commit-push-pr|push-pr|pr)
       wt_has_gh || { echo "ERROR: gh CLI required for PR creation" >&2; exit 1; }
-      echo "==> creating PR..." >&2
       local out
       if out=$(gh pr create --base "$BASE" --fill 2>&1); then
         PR_URL=$(echo "$out" | grep -oE 'https://[^[:space:]]+' | head -1 || echo "")
@@ -157,7 +154,6 @@ cmd_teardown() {
 
   cd "$main" || { echo "ERROR: cannot cd to main: $main" >&2; exit 1; }
 
-  echo "==> removing worktree $wt_path" >&2
   if (( force )); then
     git worktree remove --force "$wt_path" || { echo "ERROR: worktree remove --force failed" >&2; exit 1; }
   else
